@@ -1,76 +1,77 @@
-import { handleVerification } from './verify_keys.js';
+import keyManager from './key_manager.js';
+import { calculateRetryDelay, adaptiveTimeout, errorTracker } from './utils.js';
 import openai from './openai.mjs';
-import keyManagerInstance from './key_manager.js';
 
 export async function handleRequest(request, env) {
   const url = new URL(request.url);
 
-  // OpenAI 格式的请求由 openai.mjs 处理
   if (url.pathname.includes("/v1")) {
-    // 将 keyManagerInstance 传递给 openai.fetch
-    return openai.fetch(request, env, keyManagerInstance);
+    return openai.fetch(request, env, keyManager);
   }
 
-  // Gemini API 的直接请求处理
-  const pathname = url.pathname;
-  const search = url.search;
-  const targetUrl = `https://generativelanguage.googleapis.com${pathname}${search}`;
-
+  const MAX_RETRIES = 5;
   let attempts = 0;
-  const maxAttempts = keyManagerInstance.apiKeyPool.length;
 
-  while (attempts < maxAttempts) {
-    let apiKey;
-    try {
-      const keyObject = keyManagerInstance.getNextAvailableKey();
-      apiKey = keyObject.key;
-    } catch (error) {
-      // 捕获所有密钥都已用尽的错误
-      return new Response(error.message, { status: 503 });
+  while (attempts < MAX_RETRIES) {
+    const apiKey = keyManager.getNextAvailableKey();
+
+    if (!apiKey) {
+      throw new Error("All API keys are currently unavailable.");
     }
 
-    attempts++;
+    const pathname = url.pathname;
+    const search = url.search;
+    const targetUrl = `https://generativelanguage.googleapis.com${pathname}${search}`;
+
     const headers = new Headers(request.headers);
-    headers.set('x-goog-api-key', apiKey);
+    headers.set('x-goog-api-key', apiKey.key);
 
     try {
+      const controller = new AbortController();
+      const timeout = adaptiveTimeout.getTimeout();
+      const timeoutId = setTimeout(() => controller.abort(), timeout);
+
       const response = await fetch(targetUrl, {
         method: request.method,
         headers: headers,
-        body: request.body
+        body: request.body,
+        signal: controller.signal
       });
 
-      // 如果是配额问题 (429)，则标记该 key 并尝试下一个
-      if (response.status === 429) {
-        console.warn(`API Key ${apiKey.substring(0, 4)}... hit a rate limit (429).`);
-        keyManagerInstance.markQuotaExceeded(apiKey);
-        continue; // 立即尝试下一个 key
+      clearTimeout(timeoutId);
+
+      if (response.ok) {
+          const responseHeaders = new Headers(response.headers);
+          responseHeaders.set('Referrer-Policy', 'no-referrer');
+          return new Response(response.body, {
+              status: response.status,
+              headers: responseHeaders
+          });
       }
 
-      // 对于任何其他非 OK 的响应，我们只做简单的重试，不禁用 key
-      if (!response.ok) {
-        console.warn(`API Key ${apiKey.substring(0, 4)}... failed with status ${response.status}. Retrying with next key.`);
-        continue;
-      }
-
-      // 成功，直接返回响应
-      const responseHeaders = new Headers(response.headers);
-      responseHeaders.set('Referrer-Policy', 'no-referrer');
-      return new Response(response.body, {
-        status: response.status,
-        headers: responseHeaders
-      });
+      const error = new Error(`HTTP error! status: ${response.status}`);
+      error.status = response.status;
+      throw error;
 
     } catch (error) {
-      // 网络错误或其他 fetch 异常
-      console.error(`Request with key ${apiKey.substring(0, 4)}... failed: ${error}`);
-      // 网络问题不禁用 key，直接尝试下一个
+      errorTracker.trackError(error);
+
+      if (error.status === 429) {
+        keyManager.markQuotaExceeded(apiKey.key);
+      }
+
+      if (error.name === 'AbortError' || error.status === 504) {
+        adaptiveTimeout.increaseTimeout();
+      }
+
+      await new Promise(resolve => setTimeout(resolve, calculateRetryDelay(error, attempts)));
+      attempts++;
     }
   }
 
-  // 如果循环结束还没有成功返回，说明所有 key 都尝试失败了
-  return new Response('All available API keys failed to process the request after multiple attempts.', {
-    status: 502, // Bad Gateway
+  // If the loop finishes, all retries have failed.
+  return new Response('The request failed after multiple retries.', {
+    status: 502,
   });
 }
 

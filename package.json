@@ -1,5 +1,11 @@
 {
   "devDependencies": {
     "wrangler": "^4.23.0"
+  },
+  "dependencies": {
+    "@vercel/kv": "^3.0.0",
+    "bcrypt": "^6.0.0",
+    "iron-session": "^8.0.4",
+    "winston": "^3.17.0"
   }
 }

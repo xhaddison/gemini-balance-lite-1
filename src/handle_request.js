@@ -1,81 +1,76 @@
 import { handleVerification } from './verify_keys.js';
 import openai from './openai.mjs';
+import keyManagerInstance from './key_manager.js';
 
-export async function handleRequest(request) {
-
+export async function handleRequest(request, env) {
   const url = new URL(request.url);
+
+  // OpenAI 格式的请求由 openai.mjs 处理
+  if (url.pathname.includes("/v1")) {
+    // 将 keyManagerInstance 传递给 openai.fetch
+    return openai.fetch(request, env, keyManagerInstance);
+  }
+
+  // Gemini API 的直接请求处理
   const pathname = url.pathname;
   const search = url.search;
-
-  if (pathname === '/' || pathname === '/index.html') {
-    return new Response('Proxy is Running!  More Details: https://github.com/tech-shrimp/gemini-balance-lite', {
-      status: 200,
-      headers: { 'Content-Type': 'text/html' }
-    });
-  }
-
-  if (pathname === '/verify' && request.method === 'POST') {
-    return handleVerification(request);
-  }
-
-  // 处理OpenAI格式请求
-  if (url.pathname.endsWith("/chat/completions") || url.pathname.endsWith("/completions") || url.pathname.endsWith("/embeddings") || url.pathname.endsWith("/models")) {
-    return openai.fetch(request);
-  }
-
   const targetUrl = `https://generativelanguage.googleapis.com${pathname}${search}`;
 
-  try {
-    const headers = new Headers();
-    for (const [key, value] of request.headers.entries()) {
-      if (key.trim().toLowerCase() === 'x-goog-api-key') {
-        const apiKeys = value.split(',').map(k => k.trim()).filter(k => k);
-        if (apiKeys.length > 0) {
-          const selectedKey = apiKeys[Math.floor(Math.random() * apiKeys.length)];
-          console.log(`Gemini Selected API Key: ${selectedKey}`);
-          headers.set('x-goog-api-key', selectedKey);
-        }
-      } else {
-        if (key.trim().toLowerCase()==='content-type')
-        {
-           headers.set(key, value);
-        }
-      }
+  let attempts = 0;
+  const maxAttempts = keyManagerInstance.apiKeyPool.length;
+
+  while (attempts < maxAttempts) {
+    let apiKey;
+    try {
+      const keyObject = keyManagerInstance.getNextAvailableKey();
+      apiKey = keyObject.key;
+    } catch (error) {
+      // 捕获所有密钥都已用尽的错误
+      return new Response(error.message, { status: 503 });
     }
 
-    console.log('Request Sending to Gemini')
-    console.log('targetUrl:'+targetUrl)
-    console.log(headers)
+    attempts++;
+    const headers = new Headers(request.headers);
+    headers.set('x-goog-api-key', apiKey);
 
-    const response = await fetch(targetUrl, {
-      method: request.method,
-      headers: headers,
-      body: request.body
-    });
+    try {
+      const response = await fetch(targetUrl, {
+        method: request.method,
+        headers: headers,
+        body: request.body
+      });
 
-    console.log("Call Gemini Success")
+      // 如果是配额问题 (429)，则标记该 key 并尝试下一个
+      if (response.status === 429) {
+        console.warn(`API Key ${apiKey.substring(0, 4)}... hit a rate limit (429).`);
+        keyManagerInstance.markQuotaExceeded(apiKey);
+        continue; // 立即尝试下一个 key
+      }
 
-    const responseHeaders = new Headers(response.headers);
+      // 对于任何其他非 OK 的响应，我们只做简单的重试，不禁用 key
+      if (!response.ok) {
+        console.warn(`API Key ${apiKey.substring(0, 4)}... failed with status ${response.status}. Retrying with next key.`);
+        continue;
+      }
 
-    console.log('Header from Gemini:')
-    console.log(responseHeaders)
+      // 成功，直接返回响应
+      const responseHeaders = new Headers(response.headers);
+      responseHeaders.set('Referrer-Policy', 'no-referrer');
+      return new Response(response.body, {
+        status: response.status,
+        headers: responseHeaders
+      });
 
-    responseHeaders.delete('transfer-encoding');
-    responseHeaders.delete('connection');
-    responseHeaders.delete('keep-alive');
-    responseHeaders.delete('content-encoding');
-    responseHeaders.set('Referrer-Policy', 'no-referrer');
+    } catch (error) {
+      // 网络错误或其他 fetch 异常
+      console.error(`Request with key ${apiKey.substring(0, 4)}... failed: ${error}`);
+      // 网络问题不禁用 key，直接尝试下一个
+    }
+  }
 
-    return new Response(response.body, {
-      status: response.status,
-      headers: responseHeaders
-    });
-
-  } catch (error) {
-   console.error('Failed to fetch:', error);
-   return new Response('Internal Server Error\n' + error?.stack, {
-    status: 500,
-    headers: { 'Content-Type': 'text/plain' }
-   });
+  // 如果循环结束还没有成功返回，说明所有 key 都尝试失败了
+  return new Response('All available API keys failed to process the request after multiple attempts.', {
+    status: 502, // Bad Gateway
+  });
 }
-};
+

@@ -1,10 +1,8 @@
+jest.mock('../key_manager');
+import { describe, test, expect, afterEach, jest } from '@jest/globals';
 import { handleRequest } from '../handle_request';
 import { keyManager } from '../key_manager';
 
-// Spy on keyManager methods
-jest.spyOn(keyManager, 'getNextAvailableKey').mockImplementation(jest.fn());
-jest.spyOn(keyManager, 'markSuccess').mockImplementation(jest.fn());
-jest.spyOn(keyManager, 'markQuotaExceeded').mockImplementation(jest.fn());
 
 // Mock fetch
 global.fetch = jest.fn();

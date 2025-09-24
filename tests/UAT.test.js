@@ -1,13 +1,21 @@
 // UAT.test.js
+import { jest, describe, test, expect, beforeEach } from '@jest/globals';
 
 // Mock essential modules before any imports
 jest.mock('../src/key_manager.js');
 jest.mock('../src/utils.js', () => ({
-  ...jest.requireActual('../src/utils.js'), // Keep original functions
-  calculateRetryDelay: jest.fn().mockReturnValue(0), // No delay in tests
+  calculateRetryDelay: jest.fn().mockReturnValue(0),
+  AdaptiveTimeout: jest.fn().mockImplementation(() => ({
+    getTimeout: jest.fn().mockReturnValue(30000),
+    increaseTimeout: jest.fn(),
+    decreaseTimeout: jest.fn(),
+    resetTimeout: jest.fn(),
+  })),
+  ErrorTracker: jest.fn().mockImplementation(() => ({
+    trackError: jest.fn(),
+  })),
 }));
 jest.mock('../src/openai.mjs');
-
 
 import { handleRequest } from '../src/handle_request.js';
 import { keyManager } from '../src/key_manager.js';

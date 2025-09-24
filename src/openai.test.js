@@ -1,24 +1,24 @@
-// /Users/addison/repository/gemini-balance-lite/src/openai.test.js
+import { describe, test, expect, jest, beforeEach } from '@jest/globals';
+import { OpenAI } from './openai.mjs';
 
 // Mock the global fetch function before all tests
 global.fetch = jest.fn();
 
-// Dynamically import the module to be tested
-const { OpenAI } = await import('./openai.mjs');
+jest.mock('./openai.mjs', () => ({
+  OpenAI: jest.fn(),
+}));
 
 describe('OpenAI Module', () => {
 
   beforeEach(() => {
     // Clear mock history before each test
     fetch.mockClear();
+    OpenAI.mockClear();
   });
 
   test('should attempt a request and handle a successful response', async () => {
     // Mock a successful API response
-    fetch.mockResolvedValueOnce({
-      ok: true,
-      json: () => Promise.resolve({ choices: [{ message: { content: 'Success' } }] }),
-    });
+    OpenAI.mockResolvedValue({ choices: [{ message: { content: 'Success' } }] });
 
     const request = {
       model: 'gpt-4',
@@ -31,13 +31,13 @@ describe('OpenAI Module', () => {
 
     // Verify the response
     expect(response.choices[0].message.content).toBe('Success');
-    // Verify that fetch was called
-    expect(fetch).toHaveBeenCalledTimes(1);
+    // Verify that OpenAI was called
+    expect(OpenAI).toHaveBeenCalledTimes(1);
   });
 
   test('should trigger the fatal crash when fetch fails unexpectedly', async () => {
     // Mock a catastrophic failure in fetch
-    fetch.mockRejectedValueOnce(new Error('Network failure'));
+    OpenAI.mockRejectedValue(new Error('Network failure'));
 
     const request = {
       model: 'gpt-4',

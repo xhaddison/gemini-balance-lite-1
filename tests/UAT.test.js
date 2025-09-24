@@ -45,13 +45,10 @@ describe('UAT Automated Tests based on UAT_Plan.md', () => {
     keyManager.getNextAvailableKey.mockReturnValue(validKey);
     const mockSuccessResponse = { content: 'success' };
 
-    fetch.mockResolvedValue({
-      ok: true,
+    fetch.mockResolvedValue(new Response(JSON.stringify(mockSuccessResponse), {
       status: 200,
-      headers: new Headers(),
-      body: JSON.stringify(mockSuccessResponse),
-      json: async () => mockSuccessResponse,
-    });
+      headers: new Headers({ 'Content-Type': 'application/json' }),
+    }));
 
     const request = new Request('https://gemini-proxy.com/v1beta/models/gemini-pro:generateContent');
 
@@ -81,18 +78,11 @@ describe('UAT Automated Tests based on UAT_Plan.md', () => {
       .mockReturnValueOnce(validKey);
 
     // Mock first call to fail, second to succeed
-    fetch.mockResolvedValueOnce({
-      ok: false,
-      status: 429,
-      json: async () => ({ error: 'Quota Exceeded' }),
-    });
-    fetch.mockResolvedValueOnce({
-      ok: true,
+    fetch.mockResolvedValueOnce(new Response(JSON.stringify({ error: 'Quota Exceeded' }), { status: 429 }));
+    fetch.mockResolvedValueOnce(new Response(JSON.stringify({ content: 'success' }), {
       status: 200,
-      headers: new Headers(),
-      body: JSON.stringify({ content: 'success' }),
-      json: async () => ({ content: 'success' }),
-    });
+      headers: new Headers({ 'Content-Type': 'application/json' }),
+    }));
 
     const request = new Request('https://gemini-proxy.com/generate');
 
@@ -131,18 +121,11 @@ describe('UAT Automated Tests based on UAT_Plan.md', () => {
     const key = { key: 'any-key' };
     keyManager.getNextAvailableKey.mockReturnValue(key);
 
-    fetch.mockResolvedValueOnce({
-      ok: false,
-      status: 503,
-      json: async () => ({ error: 'Service Unavailable' }),
-    });
-    fetch.mockResolvedValueOnce({
-      ok: true,
+    fetch.mockResolvedValueOnce(new Response(JSON.stringify({ error: 'Service Unavailable' }), { status: 503 }));
+    fetch.mockResolvedValueOnce(new Response(JSON.stringify({ content: 'success' }), {
       status: 200,
-      headers: new Headers(),
-      body: JSON.stringify({ content: 'success' }),
-      json: async () => ({ content: 'success' }),
-    });
+      headers: new Headers({ 'Content-Type': 'application/json' }),
+    }));
 
     const request = new Request('https://gemini-proxy.com/generate');
 
@@ -164,13 +147,10 @@ describe('UAT Automated Tests based on UAT_Plan.md', () => {
     keyManager.getNextAvailableKey.mockReturnValue(key);
 
     fetch.mockRejectedValueOnce({ name: 'AbortError' }); // Simulate timeout
-    fetch.mockResolvedValueOnce({
-      ok: true,
+    fetch.mockResolvedValueOnce(new Response(JSON.stringify({ content: 'success' }), {
       status: 200,
-      headers: new Headers(),
-      body: JSON.stringify({ content: 'success' }),
-      json: async () => ({ content: 'success' }),
-    });
+      headers: new Headers({ 'Content-Type': 'application/json' }),
+    }));
 
     const request = new Request('https://gemini-proxy.com/generate');
 

@@ -1,9 +1,11 @@
-import { KeyManager, AdaptiveTimeout, ErrorTracker, calculateRetryDelay } from './utils.js';
+import { AdaptiveTimeout, ErrorTracker, calculateRetryDelay } from './utils.js';
+import { keyManager } from './key_manager.js';
 import { Readable } from 'stream';
 
-const keyManager = new KeyManager();
 const adaptiveTimeout = new AdaptiveTimeout();
 const errorTracker = new ErrorTracker();
+
+
 
 const MAX_RETRIES = 5;
 
@@ -64,8 +66,8 @@ async function fetchWithRetry(url, options) {
 
       const delay = calculateRetryDelay(error, retries);
       await new Promise(resolve => setTimeout(resolve, delay));
+      retries++;
     }
-    retries++;
   }
 
   console.error(`Request failed after ${MAX_RETRIES} retries. Last error:`, lastError);

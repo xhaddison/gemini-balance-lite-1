@@ -1,22 +1,22 @@
-import keyManager from './key_manager.js';
-import { calculateRetryDelay, adaptiveTimeout, errorTracker } from './utils.js';
-import openai from './openai.mjs';
+import { keyManager } from './key_manager.js';
+import { calculateRetryDelay, AdaptiveTimeout, errorTracker, MAX_RETRIES } from './utils.js';
+const adaptiveTimeout = new AdaptiveTimeout();
+import { OpenAI } from './openai.mjs';
 
 export async function handleRequest(request, env) {
   const url = new URL(request.url);
 
-  if (url.pathname.includes("/v1")) {
-    return openai.fetch(request, env, keyManager);
+  if (url.pathname.startsWith('/v1/')) {
+    return OpenAI(request, env);
   }
 
-  const MAX_RETRIES = 5;
   let attempts = 0;
 
   while (attempts < MAX_RETRIES) {
     const apiKey = keyManager.getNextAvailableKey();
 
     if (!apiKey) {
-      throw new Error("All API keys are currently unavailable.");
+      break;
     }
 
     const pathname = url.pathname;
@@ -41,6 +41,8 @@ export async function handleRequest(request, env) {
       clearTimeout(timeoutId);
 
       if (response.ok) {
+        adaptiveTimeout.decreaseTimeout();
+        keyManager.markSuccess(apiKey.key);
           const responseHeaders = new Headers(response.headers);
           responseHeaders.set('Referrer-Policy', 'no-referrer');
           return new Response(response.body, {
@@ -49,11 +51,20 @@ export async function handleRequest(request, env) {
           });
       }
 
-      const error = new Error(`HTTP error! status: ${response.status}`);
-      error.status = response.status;
-      throw error;
+      const errorData = await response.json().catch(() => ({ status: response.status, message: response.statusText }));
+      errorData.status = response.status;
+
+      errorTracker.trackError(errorData, apiKey.key);
+
+      if (response.status === 429) {
+        keyManager.markQuotaExceeded(apiKey.key);
+      } else if (response.status >= 500) {
+        keyManager.markServerError(apiKey.key);
+      }
+
 
     } catch (error) {
+      keyManager.markServerError(apiKey.key);
       errorTracker.trackError(error);
 
       if (error.status === 429) {

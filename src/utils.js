@@ -1,5 +1,5 @@
 
-function calculateRetryDelay(error, attempt) {
+export function calculateRetryDelay(error, attempt) {
   if (!error || typeof error.status !== 'number') {
     return 1000;
   }
@@ -23,7 +23,7 @@ function calculateRetryDelay(error, attempt) {
   }
 }
 
-class AdaptiveTimeout {
+export class AdaptiveTimeout {
   constructor(initialTimeout = 180000, maxTimeout = 600000) {
     this.initialTimeout = initialTimeout;
     this.maxTimeout = maxTimeout;
@@ -52,7 +52,7 @@ function sendAlert(message) {
   console.log(`[ALERT] ${message}`);
 }
 
-class ErrorTracker {
+export class ErrorTracker {
   constructor() {
     this.errorStats = {};
   }
@@ -70,13 +70,9 @@ class ErrorTracker {
   }
 }
 
-const errorTracker = new ErrorTracker();
+export const errorTracker = new ErrorTracker();
 
-module.exports = {
-  calculateRetryDelay,
-  AdaptiveTimeout,
-  adaptiveTimeout,
-  ErrorTracker,
-  errorTracker,
-};
+
+export const MAX_RETRIES = 5;
+
 

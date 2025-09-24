@@ -15,11 +15,9 @@ class KeyManager {
          * @private
          * @type {Array<{key: string, quotaExceeded: boolean, lastUsed: number|null}>}
          */
-        this.apiKeyPool = keys.map(key => ({
-            key: key,
-            quotaExceeded: false,
-            lastUsed: null,
-        }));
+        this.apiKeyPool = [];
+        this.setKeys(keys);
+
 
         /**
          * @private
@@ -28,6 +26,20 @@ class KeyManager {
         this.currentKeyIndex = 0;
 
         console.log(`KeyManager initialized with ${this.apiKeyPool.length} keys.`);
+    }
+
+    /**
+     * 设置或重置 API 密钥池。此方法主要用于测试注入。
+     * @param {Array<string>} keys - API 密钥字符串数组
+     */
+    setKeys(keys) {
+        this.apiKeyPool = keys.map(key => ({
+            key: key,
+            quotaExceeded: false,
+            lastUsed: null,
+            serverError: false,
+        }));
+        console.log(`KeyManager now has ${this.apiKeyPool.length} keys.`);
     }
 
     /**
@@ -53,10 +65,29 @@ class KeyManager {
         return keyObject;
     }
 
+    markSuccess(key) {
+        const keyObject = this.apiKeyPool.find(k => k.key === key);
+        if (keyObject) {
+            keyObject.serverError = false; // A successful request resets the server error flag.
+        }
+    }
+
     /**
-     * 将指定的密钥标记为已超出配额。
+     * 将指定的密钥标记为遇到服务器错误。
      * @param {string} key - 要标记的 API Key 字符串
      */
+    markServerError(key) {
+        const keyObject = this.apiKeyPool.find(k => k.key === key);
+        if (keyObject) {
+            if (!keyObject.serverError) {
+                keyObject.serverError = true;
+                console.warn(`API Key ${key.substring(0, 4)}... has been marked as having a server error.`);
+            }
+        } else {
+            console.error(`Attempted to mark an unknown key as having a server error: ${key.substring(0, 4)}...`);
+        }
+    }
+
     markQuotaExceeded(key) {
         const keyObject = this.apiKeyPool.find(k => k.key === key);
         if (keyObject) {
@@ -82,10 +113,6 @@ class KeyManager {
     }
 }
 
-// 从环境变量中获取 API 密钥
-const GEMINI_API_KEYS = process.env.GEMINI_API_KEYS || '';
+const keyManager = new KeyManager(process.env.GEMINI_API_KEYS || '');
 
-// 创建并导出一个 KeyManager 的单例实例，确保整个应用共享同一个密钥池状态。
-const keyManagerInstance = new KeyManager(GEMINI_API_KEYS);
-
-export default keyManagerInstance;
+export { keyManager };

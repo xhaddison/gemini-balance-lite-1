@@ -21,21 +21,19 @@ import { handleRequest } from '../src/handle_request.js';
 import { keyManager } from '../src/key_manager.js';
 import { OpenAI } from '../src/openai.mjs';
 
-// Set up global fetch mock
-global.fetch = jest.fn();
+// Set up global fetch mock in a way that is robust to module mocking
+let fetchSpy;
+beforeEach(() => {
+  fetchSpy = jest.spyOn(global, 'fetch').mockImplementation(jest.fn());
+  // Reset mocks and state before each test
+  keyManager.getNextAvailableKey.mockClear();
+  keyManager.markQuotaExceeded.mockClear();
+  keyManager.markServerError.mockClear();
+  keyManager.markSuccess.mockClear();
+  OpenAI.mockClear();
+});
 
 describe('UAT Automated Tests based on UAT_Plan.md', () => {
-
-  beforeEach(() => {
-    // Reset mocks and state before each test
-    fetch.mockClear();
-    keyManager.getNextAvailableKey.mockClear();
-    keyManager.markQuotaExceeded.mockClear();
-    keyManager.markServerError.mockClear();
-    keyManager.markSuccess.mockClear();
-    OpenAI.mockClear();
-  });
-
   /**
    * TC-CORE-01: Core Proxy - Successful Request
    */

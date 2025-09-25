@@ -1,4 +1,10 @@
 {
+  "crons": [
+    {
+      "path": "/api/reset-keys",
+      "schedule": "0 0 * * *"
+    }
+  ],
   "routes": [
     { "src": "/(.*)", "dest": "/api/vercel_index.js" }
   ]

@@ -1,9 +1,10 @@
-import { keyManager } from './key_manager.js';
+import { getKeyManager } from './key_manager.js';
 import { calculateRetryDelay, AdaptiveTimeout, errorTracker, MAX_RETRIES } from './utils.js';
 const adaptiveTimeout = new AdaptiveTimeout();
 import { OpenAI } from './openai.mjs';
 
 export async function handleRequest(request, env) {
+  const keyManager = await getKeyManager();
   const url = new URL(request.url);
 
   if (url.pathname.startsWith('/v1/')) {
@@ -13,7 +14,7 @@ export async function handleRequest(request, env) {
   let attempts = 0;
 
   while (attempts < MAX_RETRIES) {
-    const apiKey = keyManager.getNextAvailableKey();
+    const apiKey = await keyManager.getKey();
 
     if (!apiKey) {
       break;
@@ -42,7 +43,7 @@ export async function handleRequest(request, env) {
 
       if (response.ok) {
         adaptiveTimeout.decreaseTimeout();
-        keyManager.markSuccess(apiKey.key);
+        keyManager.updateKeyStatus(apiKey, 200);
           const responseHeaders = new Headers(response.headers);
           responseHeaders.set('Referrer-Policy', 'no-referrer');
           return new Response(response.body, {
@@ -57,19 +58,15 @@ export async function handleRequest(request, env) {
       errorTracker.trackError(errorData, apiKey.key);
 
       if (response.status === 429) {
-        keyManager.markQuotaExceeded(apiKey.key);
+        keyManager.updateKeyStatus(apiKey, 429);
       } else if (response.status >= 500) {
-        keyManager.markServerError(apiKey.key);
+        keyManager.updateKeyStatus(apiKey, 500);
       }
 
 
     } catch (error) {
-      keyManager.markServerError(apiKey.key);
+      keyManager.updateKeyStatus(apiKey, 500); // Assuming server error for catch block
       errorTracker.trackError(error);
-
-      if (error.status === 429) {
-        keyManager.markQuotaExceeded(apiKey.key);
-      }
 
       if (error.name === 'AbortError' || error.status === 504) {
         adaptiveTimeout.increaseTimeout();

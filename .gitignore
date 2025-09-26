@@ -5,3 +5,4 @@ node_modules/
 .vercel
 # Ignore environment variables file
 .env
+\n# Environment variables\n.env*.local\n.env\n\n# Node dependencies\nnode_modules/\n\n# Build directory\n.next/\nout/\n\n# Log files\n*.log\n\n# Temporary files\n*.tmp\n*.swp

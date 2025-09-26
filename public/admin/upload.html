@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Upload Keys</title>
+</head>
+<body>
+    <h1>Upload New Key File</h1>
+    <form id="uploadForm" enctype="multipart/form-data">
+        <div>
+            <label for="keyfile">Key File:</label>
+            <input type="file" id="keyfile" name="keyfile" required>
+        </div>
+        <br>
+        <div>
+            <label for="admin_key">Admin Key:</label>
+            <input type="password" id="admin_key" name="admin_key" required>
+        </div>
+        <br>
+        <button type="submit">Upload</button>
+    </form>
+    <div id="message" style="margin-top: 20px;"></div>
+
+    <script>
+        const form = document.getElementById('uploadForm');
+        const messageDiv = document.getElementById('message');
+
+        form.addEventListener('submit', async (event) => {
+            event.preventDefault();
+
+            const formData = new FormData();
+            const keyfileInput = document.getElementById('keyfile');
+            const adminKeyInput = document.getElementById('admin_key');
+
+            if (keyfileInput.files.length === 0) {
+                messageDiv.textContent = 'Please select a key file.';
+                messageDiv.style.color = 'red';
+                return;
+            }
+
+            formData.append('keyfile', keyfileInput.files[0]);
+            formData.append('admin_key', adminKeyInput.value);
+
+            try {
+                const response = await fetch('/api/upload-keys', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                const result = await response.json();
+
+                if (response.ok) {
+                    messageDiv.textContent = '密钥已成功更新！';
+                    messageDiv.style.color = 'green';
+                } else {
+                    messageDiv.textContent = `Error: ${result.message || 'Upload failed'}`;
+                    messageDiv.style.color = 'red';
+                }
+            } catch (error) {
+                messageDiv.textContent = `An unexpected error occurred: ${error.message}`;
+                messageDiv.style.color = 'red';
+            }
+        });
+    </script>
+</body>
+</html>

@@ -4,7 +4,7 @@ const adaptiveTimeout = new AdaptiveTimeout();
 import { OpenAI } from './openai.mjs';
 
 export async function handleRequest(request, env) {
-  const keyManager = await getKeyManager();
+  const keyManager = await getKeyManager(env);
   const url = new URL(request.url);
 
   if (url.pathname.startsWith('/v1/')) {

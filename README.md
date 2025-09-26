@@ -57,7 +57,7 @@ Gemini API 代理, 使用边缘函数把Gemini API免费中转到国内。还可
 
 
 ## Cloudflare Worker 部署
-[![Deploy to Cloudflare Workers](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/tech-shrimp/gemini-balance-lite)
+[![Deploy to Cloudflare Workers](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/xhaddison/gemini-balance-lite-1)
 
 0. CF Worker有可能会分配香港的CDN节点导致无法使用(Gemini不允许香港IP连接)
 0. 广东地区不建议使用Cloudflare Worker 部署

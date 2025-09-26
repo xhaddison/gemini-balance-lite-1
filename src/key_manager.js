@@ -1,5 +1,5 @@
 // src/key_manager.js
-import { kv } from '@vercel/kv';
+// import { kv } from '@vercel/kv';
 
 // Constants based on Gemini API documentation (e.g., for Pro accounts)
 const RPM_LIMIT = 59; // Requests per minute, set slightly lower than 60 for safety
@@ -10,12 +10,9 @@ const QPD_LIMIT = 1500; // Queries per day, example value
  * 实现了基于健康状态的动态调度、主动规避速率限制、自动降级和故障隔离。
  */
 class IntelligentKeyScheduler {
-    static async create(rawKeysString) {
-        // a. 在方法内部，首先创建一个 KeyManager 的新实例
-        const manager = new IntelligentKeyScheduler(rawKeysString);
-
-        // b. 从 Vercel KV 中读取状态
-        const savedState = await kv.get('gemini-key-pool-state');
+    static async create(rawKeysString, env) {
+        const manager = new IntelligentKeyScheduler(rawKeysString, env);
+        const savedState = await env.KV_NAMESPACE.get('gemini-key-pool-state', { type: 'json' });
 
         // c. 合并状态: 如果 savedState 存在，用它来更新 manager.apiKeyPool
         // 这个逻辑确保了环境变量中新增的密钥能被正确添加，
@@ -39,13 +36,15 @@ class IntelligentKeyScheduler {
     async _saveState() {
         // Vercel KV value can't be a Map, so we convert it to an Object
         const stateToSave = Object.fromEntries(this.apiKeyPool);
-        await kv.set('gemini-key-pool-state', stateToSave);
+        await this.env.KV_NAMESPACE.put('gemini-key-pool-state', JSON.stringify(stateToSave));
     }
 
     /**
      * @param {string} rawKeysString - 从环境变量中获取的、逗号分隔的 API Key 字符串
+     * @param {object} env - Cloudflare Workers 的 env 对象
      */
-    constructor(rawKeysString = '') {
+    constructor(rawKeysString = '', env) {
+        this.env = env; // 保存 env 对象
         /**
          * @private
          * @type {Map<string, {
@@ -211,11 +210,12 @@ class IntelligentKeyScheduler {
     }
 }
 
-let keyManagerInstance;
+let keyManagerInstances = new Map();
 
-export const getKeyManager = async () => {
-    if (!keyManagerInstance) {
-        keyManagerInstance = await IntelligentKeyScheduler.create(process.env.GEMINI_API_KEYS || '');
+export const getKeyManager = async (env) => {
+    const instanceKey = env.KV_NAMESPACE ? 'default' : JSON.stringify(env); // Simple key for env
+    if (!keyManagerInstances.has(instanceKey)) {
+        keyManagerInstances.set(instanceKey, await IntelligentKeyScheduler.create(env.GEMINI_API_KEYS || '', env));
     }
-    return keyManagerInstance;
+    return keyManagerInstances.get(instanceKey);
 };

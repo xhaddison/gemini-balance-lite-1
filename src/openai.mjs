@@ -1,20 +1,26 @@
 import { AdaptiveTimeout, ErrorTracker, calculateRetryDelay } from './utils.js';
-import { keyManager } from './key_manager.js';
-import { Readable } from 'stream';
+import { getKeyManager } from './key_manager.js';
 
 const adaptiveTimeout = new AdaptiveTimeout();
 const errorTracker = new ErrorTracker();
 
+let keyManager;
 
+async function initializeKeyManager() {
+  if (!keyManager) {
+    keyManager = await getKeyManager();
+  }
+}
 
 const MAX_RETRIES = 5;
 
 async function fetchWithRetry(url, options) {
+  await initializeKeyManager();
   let retries = 0;
   let lastError = null;
 
   while (retries < MAX_RETRIES) {
-    const apiKey = keyManager.getNextAvailableKey();
+    const apiKey = await keyManager.getKey();
     if (!apiKey) {
       console.error('All API keys are unavailable.');
       throw new Error('All API keys are currently unavailable.');
@@ -23,16 +29,17 @@ async function fetchWithRetry(url, options) {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), adaptiveTimeout.getTimeout());
 
-    options.headers['Authorization'] = `Bearer ${apiKey.key}`;
+    options.headers['Authorization'] = `Bearer ${apiKey}`;
     options.signal = controller.signal;
 
     try {
       const response = await fetch(url, options);
       clearTimeout(timeoutId);
 
+      await keyManager.updateKeyStatus(apiKey, response.status);
+
       if (response.ok) {
         adaptiveTimeout.decreaseTimeout();
-        keyManager.markSuccess(apiKey.key);
         return response;
       }
 
@@ -40,13 +47,7 @@ async function fetchWithRetry(url, options) {
       errorData.status = response.status;
       lastError = errorData;
 
-      errorTracker.trackError(errorData, apiKey.key);
-
-      if (response.status === 429) {
-        keyManager.markQuotaExceeded(apiKey.key);
-      } else if (response.status >= 500) {
-        keyManager.markServerError(apiKey.key);
-      }
+      errorTracker.trackError(errorData, apiKey);
 
       const delay = calculateRetryDelay(errorData, retries);
       if (delay > 0) {
@@ -56,11 +57,11 @@ async function fetchWithRetry(url, options) {
     } catch (error) {
       clearTimeout(timeoutId);
       lastError = error;
-      errorTracker.trackError(error, apiKey.key);
-      keyManager.markServerError(apiKey.key);
+      errorTracker.trackError(error, apiKey);
+      await keyManager.updateKeyStatus(apiKey, 500); // Generic error code for catch block
 
       if (error.name === 'AbortError') {
-        console.error(`Request timed out with key ${apiKey.key}. Increasing timeout.`);
+        console.error(`Request timed out with key ${apiKey}. Increasing timeout.`);
         adaptiveTimeout.increaseTimeout();
       }
 
@@ -74,59 +75,44 @@ async function fetchWithRetry(url, options) {
   throw new Error(`Request failed after ${MAX_RETRIES} retries. Last error: ${lastError.message || lastError}`);
 }
 
-async function* streamSSE(response) {
-  const reader = response.body.getReader();
-  const decoder = new TextDecoder('utf-8');
+function createSSETransformer() {
   let buffer = '';
-
-  try {
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) {
-        if (buffer.length > 0) {
-          yield buffer;
-        }
-        break;
-      }
-
-      buffer += decoder.decode(value, { stream: true });
+  return new TransformStream({
+    transform(chunk, controller) {
+      buffer += new TextDecoder().decode(chunk);
       let eolIndex;
       while ((eolIndex = buffer.indexOf('\\n')) >= 0) {
-        const line = buffer.slice(0, eolIndex);
+        const line = buffer.slice(0, eolIndex).trim();
         buffer = buffer.slice(eolIndex + 1);
         if (line.startsWith('data:')) {
-          yield line.slice(5).trim();
+          const data = line.slice(5).trim();
+          if (data === '[DONE]') {
+            controller.terminate();
+            return;
+          }
+          try {
+            const parsed = JSON.parse(data);
+            const content = parsed.choices[0]?.delta?.content;
+            if (content) {
+              controller.enqueue(new TextEncoder().encode(content));
+            }
+          } catch (e) {
+            console.error('Error parsing SSE chunk:', e);
+          }
         }
       }
     }
-  } finally {
-    reader.releaseLock();
-  }
+  });
 }
 
 function getResponse(body, stream) {
-  if (!stream) {
+  if (!stream || !body.body) {
     return body;
   }
-
-  const streamSource = async function* () {
-    for await (const chunk of streamSSE(body)) {
-      if (chunk === '[DONE]') {
-        return;
-      }
-      try {
-        const data = JSON.parse(chunk);
-        const content = data.choices[0]?.delta?.content || '';
-        if (content) {
-          yield content;
-        }
-      } catch (e) {
-        console.error('Error parsing SSE chunk:', e);
-      }
-    }
-  };
-
-  return Readable.from(streamSource());
+  const sseTransformer = createSSETransformer();
+  return new Response(body.body.pipeThrough(sseTransformer), {
+    headers: { 'Content-Type': 'text/event-stream' }
+  });
 }
 
 export async function OpenAI(request) {
@@ -148,24 +134,22 @@ export async function OpenAI(request) {
     const response = await fetchWithRetry(url, options);
 
     if (!stream) {
-      const jsonResponse = await response.json();
-      return getResponse(jsonResponse, false);
+      return response.json();
     } else {
       return getResponse(response, true);
     }
   } catch (error) {
     console.error('OpenAI API request failed definitively:', error);
-    // In stream mode, we need to return a readable stream that emits an error.
     if (stream) {
-      const errorStream = new Readable({
-        read() {
-          this.emit('error', error);
-          this.push(null);
+        const errorStream = new ReadableStream({
+        start(controller) {
+          const errorData = JSON.stringify({ error: { message: error.message, type: 'internal_error' } });
+          controller.enqueue(new TextEncoder().encode(`data: ${errorData}\\n\\n`));
+          controller.close();
         }
       });
-      return errorStream;
+      return new Response(errorStream, { status: 500, headers: { 'Content-Type': 'text/event-stream' } });
     }
-    // For non-stream mode, re-throw to be caught by the caller.
-    throw error;
+    return new Response(JSON.stringify({ error: { message: error.message, type: 'internal_error' } }), { status: 500 });
   }
 }

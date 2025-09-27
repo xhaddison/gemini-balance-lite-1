@@ -5,4 +5,29 @@ node_modules/
 .vercel
 # Ignore environment variables file
 .env
-\n# Environment variables\n.env*.local\n.env\n\n# Node dependencies\nnode_modules/\n\n# Build directory\n.next/\nout/\n\n# Log files\n*.log\n\n# Temporary files\n*.tmp\n*.swp
+# Environment variables
+.env*.local
+.env
+
+# Node dependencies
+node_modules/
+
+# Build directory
+.next/
+out/
+
+# Log files
+*.log
+
+# Temporary files
+*.tmp
+*.swp
+
+# 环境变量 (包含敏感密钥)
+.env.production
+.env.production.local
+.env.development.local
+
+# 本地凭证脚本
+save_github_credentials.py
+save_vercel_credentials.py

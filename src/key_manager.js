@@ -1,5 +1,15 @@
 // src/key_manager.js
-import { kv } from '@vercel/kv';
+import Redis from 'ioredis';
+
+let redis;
+
+function getRedisClient(env) {
+  if (!redis) {
+    // ioredis can directly use the redis:// URL format
+    redis = new Redis(env.UPSTASH_REDIS_REST_URL);
+  }
+  return redis;
+}
 
 const KEY_PREFIX = 'gemini_key:';
 
@@ -16,25 +26,29 @@ function isValidKeyFormat(key) {
 
 /**
  * Retrieves all Gemini API keys from the KV store.
+ * @param {object} env The Cloudflare environment object.
  * @returns {Promise<Array<string>>} A promise that resolves to an array of keys.
  */
-export async function getAllKeys() {
-  const { keys } = await kv.scan(0, { match: `${KEY_PREFIX}*`, count: 1000 });
+export async function getAllKeys(env) {
+  const redisClient = getRedisClient(env);
+  const keys = await redisClient.keys(`${KEY_PREFIX}*`);
   return keys.map(key => key.substring(KEY_PREFIX.length));
 }
 
 /**
  * Adds a new Gemini API key to the KV store.
  * @param {string} key The API key to add.
+ * @param {object} env The Cloudflare environment object.
  * @returns {Promise<{success: boolean, message: string}>} The result of the operation.
  */
-export async function addKey(key) {
+export async function addKey(key, env) {
   if (!isValidKeyFormat(key)) {
     return { success: false, message: 'Invalid API key format.' };
   }
   try {
+    const redisClient = getRedisClient(env);
     const keyWithPrefix = `${KEY_PREFIX}${key}`;
-    await kv.set(keyWithPrefix, 'active'); // The value can be simple, e.g., 'active'
+    await redisClient.set(keyWithPrefix, 'active'); // The value can be simple, e.g., 'active'
     console.log(`[KeyManager] Successfully added key: ${key.substring(0, 4)}...`);
     return { success: true, message: 'Key added successfully.' };
   } catch (error) {
@@ -46,16 +60,18 @@ export async function addKey(key) {
 /**
  * Deletes a Gemini API key from the KV store.
  * @param {string} key The API key to delete.
+ * @param {object} env The Cloudflare environment object.
  * @returns {Promise<{success: boolean, message: string}>} The result of the operation.
  */
-export async function deleteKey(key) {
+export async function deleteKey(key, env) {
   if (!isValidKeyFormat(key)) {
     // Still good to check format to avoid accidental deletion of unrelated keys
     return { success: false, message: 'Invalid API key format.' };
   }
   try {
+    const redisClient = getRedisClient(env);
     const keyWithPrefix = `${KEY_PREFIX}${key}`;
-    const result = await kv.del(keyWithPrefix);
+    const result = await redisClient.del(keyWithPrefix);
     if (result > 0) {
       console.log(`[KeyManager] Successfully deleted key: ${key.substring(0, 4)}...`);
       return { success: true, message: 'Key deleted successfully.' };
@@ -69,12 +85,29 @@ export async function deleteKey(key) {
   }
 }
 
+
+/**
+ * Verifies the admin login key from the Authorization header.
+ * @param {Request} request The incoming request object.
+ * @param {object} env The Cloudflare environment object.
+ * @returns {boolean} True if the key is valid, false otherwise.
+ */
+export function verifyAdminKey(request, env) {
+  const authHeader = request.headers.get('Authorization');
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return false;
+  }
+  const token = authHeader.substring(7); // "Bearer ".length
+  return token === env.ADMIN_LOGIN_KEY;
+}
+
 /**
  * Selects a random, healthy API key from the pool.
+ * @param {object} env The Cloudflare environment object.
  * @returns {Promise<string|null>} A random key or null if no keys are available.
  */
-export async function getRandomKey() {
-  const allKeys = await getAllKeys();
+export async function getRandomKey(env) {
+  const allKeys = await getAllKeys(env);
   if (allKeys.length === 0) {
     return null;
   }

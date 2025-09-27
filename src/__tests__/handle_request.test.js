@@ -1,7 +1,7 @@
 jest.mock('../key_manager');
 import { describe, test, expect, afterEach, jest } from '@jest/globals';
 import { handleRequest } from '../handle_request';
-import { keyManager } from '../key_manager';
+import * as keyManager from '../key_manager';
 
 
 // Mock fetch
@@ -16,7 +16,7 @@ describe('handleRequest', () => {
   test('should proxy a successful request to the target API', async () => {
     // Arrange
     const mockApiKey = { key: 'test-api-key' };
-    keyManager.getNextAvailableKey.mockReturnValue(mockApiKey);
+    keyManager.getRandomKey.mockReturnValue({ key: mockApiKey });
 
     const mockSuccessResponse = {
       ok: true,
@@ -54,10 +54,10 @@ describe('handleRequest', () => {
   test('should rotate to the next available key for each new request', async () => {
     // Arrange
     const mockApiKeys = [{ key: 'key-1' }, { key: 'key-2' }, { key: 'key-3' }];
-    keyManager.getNextAvailableKey
-      .mockReturnValueOnce(mockApiKeys[0])
-      .mockReturnValueOnce(mockApiKeys[1])
-      .mockReturnValueOnce(mockApiKeys[2]);
+    keyManager.getRandomKey
+      .mockReturnValueOnce({ key: mockApiKeys[0] })
+      .mockReturnValueOnce({ key: mockApiKeys[1] })
+      .mockReturnValueOnce({ key: mockApiKeys[2] });
 
     global.fetch.mockResolvedValue(new Response(JSON.stringify({ message: 'Success' }), { status: 200 }));
 
@@ -82,9 +82,9 @@ describe('handleRequest', () => {
     const failingKey = { key: 'failing-key' };
     const workingKey = { key: 'working-key' };
 
-    keyManager.getNextAvailableKey
-      .mockReturnValueOnce(failingKey)
-      .mockReturnValueOnce(workingKey);
+    keyManager.getRandomKey
+      .mockReturnValueOnce({ key: failingKey })
+      .mockReturnValueOnce({ key: workingKey });
     keyManager.markQuotaExceeded = jest.fn(); // Ensure we can track calls to this
 
     const mockErrorResponse = new Response(JSON.stringify({ error: 'Quota exceeded' }), { status: 429 });
@@ -118,11 +118,11 @@ describe('handleRequest', () => {
     const MAX_RETRIES = 5;
     const failingKeys = Array.from({ length: MAX_RETRIES }, (_, i) => ({ key: `failing-key-${i + 1}` }));
 
-    // Mock getNextAvailableKey to return failing keys and then null
+    // Mock getRandomKey to return failing keys and then null
     const mockGetNextAvailableKey = jest.fn();
-    failingKeys.forEach(key => mockGetNextAvailableKey.mockReturnValueOnce(key));
+    failingKeys.forEach(key => mockGetNextAvailableKey.mockReturnValueOnce({ key }));
     mockGetNextAvailableKey.mockReturnValue(null); // Return null after all keys are used
-    keyManager.getNextAvailableKey = mockGetNextAvailableKey;
+    keyManager.getRandomKey = mockGetNextAvailableKey;
 
     // Mock fetch to always return a 429 error
     const mockErrorResponse = new Response(JSON.stringify({ error: 'Quota exceeded' }), { status: 429 });

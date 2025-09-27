@@ -1,48 +1,65 @@
 // api/keys.js
-import { getAllKeys, addKey, deleteKey } from '../src/key_manager.js';
+import { getAllKeys, addKey, deleteKey, verifyAdminKey } from '../src/key_manager.js';
 
-// Middleware for admin authentication
-const authenticate = (req) => {
-  const authKey = req.headers.authorization;
-  if (!authKey || authKey !== process.env.ADMIN_LOGIN_KEY) {
-    return false;
-  }
-  return true;
+
+const jsonResponse = (data, status = 200) => {
+  return new Response(JSON.stringify(data), {
+    status,
+    headers: { 'Content-Type': 'application/json' },
+  });
 };
 
-export default async function handler(req, res) {
-  if (!authenticate(req)) {
-    return res.status(401).json({ success: false, message: 'Unauthorized' });
-  }
+export default {
+  
+  async fetch(request, env, ctx) {
 
-  try {
-    switch (req.method) {
-      case 'GET':
-        const keys = await getAllKeys();
-        return res.status(200).json({ success: true, keys });
+    // Compatibility layer that merges worker env and process.env, with worker env taking precedence.
+    const envWrapper = {
+      ...(typeof process !== 'undefined' ? process.env : {}),
+      ...env,
+    };
 
-      case 'POST':
-        const { key: newKey } = req.body;
-        if (!newKey) {
-          return res.status(400).json({ success: false, message: 'Bad Request: "key" is required.' });
-        }
-        const addResult = await addKey(newKey);
-        return res.status(addResult.success ? 201 : 400).json(addResult);
-
-      case 'DELETE':
-        const { key: keyToDelete } = req.body;
-        if (!keyToDelete) {
-          return res.status(400).json({ success: false, message: 'Bad Request: "key" is required.' });
-        }
-        const deleteResult = await deleteKey(keyToDelete);
-        return res.status(deleteResult.success ? 200 : 404).json(deleteResult);
-
-      default:
-        res.setHeader('Allow', ['GET', 'POST', 'DELETE']);
-        return res.status(405).end(`Method ${req.method} Not Allowed`);
+    if (!verifyAdminKey(request, envWrapper)) {
+      return jsonResponse({ success: false, message: 'Unauthorized' }, 401);
     }
-  } catch (error) {
-    console.error(`[API /api/keys] Error during ${req.method} request:`, error);
-    return res.status(500).json({ success: false, message: 'Internal Server Error' });
-  }
-}
+
+    try {
+      switch (request.method) {
+        case 'GET': {
+          const keys = await getAllKeys(envWrapper);
+          return jsonResponse({ success: true, keys });
+        }
+
+        case 'POST': {
+          const { key: newKey } = await request.json();
+          if (!newKey) {
+            return jsonResponse({ success: false, message: 'Bad Request: "key" is required.' }, 400);
+          }
+          const addResult = await addKey(newKey, envWrapper);
+          return jsonResponse(addResult, addResult.success ? 201 : 400);
+        }
+
+        case 'DELETE': {
+          const { key: keyToDelete } = await request.json();
+          if (!keyToDelete) {
+            return jsonResponse({ success: false, message: 'Bad Request: "key" is required.' }, 400);
+          }
+          const deleteResult = await deleteKey(keyToDelete, envWrapper);
+          return jsonResponse(deleteResult, deleteResult.success ? 200 : 404);
+        }
+
+        default:
+          return new Response(`Method ${request.method} Not Allowed`, {
+            status: 405,
+            headers: { 'Allow': 'GET, POST, DELETE' },
+          });
+      }
+    } catch (error) {
+       console.error(`[API /api/keys] Error during ${request.method} request:`, error);
+      if (error instanceof SyntaxError) {
+        return jsonResponse({ success: false, message: 'Invalid JSON body.' }, 400);
+      }
+      return jsonResponse({ success: false, message: 'Internal Server Error' }, 500);
+    }
+  },
+};

@@ -10,14 +10,16 @@
     "wrangler": "^4.40.2"
   },
   "dependencies": {
-    "@vercel/kv": "^3.0.0",
     "bcrypt": "^6.0.0",
     "formidable": "^3.5.4",
+    "ioredis": "^5.8.0",
     "iron-session": "^8.0.4",
+    "puppeteer": "^24.22.3",
     "winston": "^3.17.0"
   },
   "scripts": {
-    "test": "jest"
+    "test": "jest",
+    "dev": "wrangler dev --env-file .env.development.local src/index.js"
   },
   "jest": {
     "transform": {

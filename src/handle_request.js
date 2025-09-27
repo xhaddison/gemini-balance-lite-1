@@ -1,48 +1,14 @@
-import { getRandomKey } from './key_manager.js';
+import { getRandomKey, getAllKeys, addKey, deleteKey } from './key_manager.js';
 import keyApiHandler from '../api/keys.js';
 import { calculateRetryDelay, AdaptiveTimeout, errorTracker, MAX_RETRIES } from './utils.js';
 const adaptiveTimeout = new AdaptiveTimeout();
 import { OpenAI } from './openai.mjs';
 
-export async function handleRequest(request, env) {
-  const keyManager = await getRandomKey(env);
+export async function handleRequest(request, env, ctx) {
   const url = new URL(request.url);
 
-  if (url.pathname === '/api/keys') {
-    // A simple mock of Node.js's http.ServerResponse
-    let statusCode = 200;
-    const headers = new Headers({ 'Content-Type': 'application/json' });
-    let body = {};
-
-    const res = {
-      status: (code) => {
-        statusCode = code;
-        return {
-          json: (data) => {
-            body = data;
-          },
-          end: (data) => {
-             body = data || '';
-          }
-        };
-      },
-      setHeader: (name, value) => {
-        headers.set(name, value);
-      },
-       end: (data) => {
-        body = data || '';
-      }
-    };
-
-    // A simple mock of Node.js's http.IncomingRequest
-    const req = {
-      method: request.method,
-      headers: request.headers,
-      body: request.body ? await request.json() : {}
-    };
-
-    await keyApiHandler(req, res);
-    return new Response(JSON.stringify(body), { status: statusCode, headers });
+  if (url.pathname.startsWith('/api/keys')) {
+    return keyApiHandler.fetch(request, env, ctx);
   }
 
   if (url.pathname.startsWith('/v1/')) {
@@ -52,9 +18,9 @@ export async function handleRequest(request, env) {
   let attempts = 0;
 
   while (attempts < MAX_RETRIES) {
-    const apiKey = await keyManager.getKey();
+    const apiKeyObject = await getRandomKey(env);
 
-    if (!apiKey) {
+    if (!apiKeyObject) {
       break;
     }
 
@@ -63,7 +29,7 @@ export async function handleRequest(request, env) {
     const targetUrl = `https://generativelanguage.googleapis.com${pathname}${search}`;
 
     const headers = new Headers(request.headers);
-    headers.set('x-goog-api-key', apiKey.key);
+    headers.set('x-goog-api-key', apiKeyObject.key);
 
     try {
       const controller = new AbortController();
@@ -81,30 +47,22 @@ export async function handleRequest(request, env) {
 
       if (response.ok) {
         adaptiveTimeout.decreaseTimeout();
-        keyManager.updateKeyStatus(apiKey, 200);
-          const responseHeaders = new Headers(response.headers);
-          responseHeaders.set('Referrer-Policy', 'no-referrer');
-          return new Response(response.body, {
-              status: response.status,
-              headers: responseHeaders
-          });
+        // Key status is not managed in this simplified version.
+        const responseHeaders = new Headers(response.headers);
+        responseHeaders.set('Referrer-Policy', 'no-referrer');
+        return new Response(response.body, {
+            status: response.status,
+            headers: responseHeaders
+        });
       }
 
       const errorData = await response.json().catch(() => ({ status: response.status, message: response.statusText }));
       errorData.status = response.status;
 
-      errorTracker.trackError(errorData, apiKey.key);
-
-      if (response.status === 429) {
-        keyManager.updateKeyStatus(apiKey, 429);
-      } else if (response.status >= 500) {
-        keyManager.updateKeyStatus(apiKey, 500);
-      }
-
+      errorTracker.trackError(errorData, apiKeyObject.key);
 
     } catch (error) {
-      keyManager.updateKeyStatus(apiKey, 500); // Assuming server error for catch block
-      errorTracker.trackError(error);
+      errorTracker.trackError(error, apiKeyObject.key);
 
       if (error.name === 'AbortError' || error.status === 504) {
         adaptiveTimeout.increaseTimeout();

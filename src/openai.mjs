@@ -1,5 +1,5 @@
 import { AdaptiveTimeout, ErrorTracker, calculateRetryDelay } from './utils.js';
-import { getKeyManager } from './key_manager.js';
+import { getRandomKey } from './key_manager.js';
 
 const adaptiveTimeout = new AdaptiveTimeout();
 const errorTracker = new ErrorTracker();
@@ -8,7 +8,7 @@ let keyManager;
 
 async function initializeKeyManager() {
   if (!keyManager) {
-    keyManager = await getKeyManager();
+    keyManager = await getRandomKey();
   }
 }
 

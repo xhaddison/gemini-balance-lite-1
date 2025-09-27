@@ -1,10 +1,10 @@
-import { getKeyManager } from './key_manager.js';
+import { getRandomKey } from './key_manager.js';
 import { calculateRetryDelay, AdaptiveTimeout, errorTracker, MAX_RETRIES } from './utils.js';
 const adaptiveTimeout = new AdaptiveTimeout();
 import { OpenAI } from './openai.mjs';
 
 export async function handleRequest(request, env) {
-  const keyManager = await getKeyManager(env);
+  const keyManager = await getRandomKey(env);
   const url = new URL(request.url);
 
   if (url.pathname.startsWith('/v1/')) {

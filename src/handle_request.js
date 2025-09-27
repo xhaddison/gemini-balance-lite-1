@@ -1,4 +1,5 @@
 import { getRandomKey } from './key_manager.js';
+import keyApiHandler from '../api/keys.js';
 import { calculateRetryDelay, AdaptiveTimeout, errorTracker, MAX_RETRIES } from './utils.js';
 const adaptiveTimeout = new AdaptiveTimeout();
 import { OpenAI } from './openai.mjs';
@@ -6,6 +7,43 @@ import { OpenAI } from './openai.mjs';
 export async function handleRequest(request, env) {
   const keyManager = await getRandomKey(env);
   const url = new URL(request.url);
+
+  if (url.pathname === '/api/keys') {
+    // A simple mock of Node.js's http.ServerResponse
+    let statusCode = 200;
+    const headers = new Headers({ 'Content-Type': 'application/json' });
+    let body = {};
+
+    const res = {
+      status: (code) => {
+        statusCode = code;
+        return {
+          json: (data) => {
+            body = data;
+          },
+          end: (data) => {
+             body = data || '';
+          }
+        };
+      },
+      setHeader: (name, value) => {
+        headers.set(name, value);
+      },
+       end: (data) => {
+        body = data || '';
+      }
+    };
+
+    // A simple mock of Node.js's http.IncomingRequest
+    const req = {
+      method: request.method,
+      headers: request.headers,
+      body: request.body ? await request.json() : {}
+    };
+
+    await keyApiHandler(req, res);
+    return new Response(JSON.stringify(body), { status: statusCode, headers });
+  }
 
   if (url.pathname.startsWith('/v1/')) {
     return OpenAI(request, env);
@@ -82,4 +120,3 @@ export async function handleRequest(request, env) {
     status: 502,
   });
 }
-

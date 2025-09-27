@@ -3,93 +3,187 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Admin Login</title>
+    <title>Gemini Key Management</title>
     <style>
-        body {
-            font-family: sans-serif;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            height: 100vh;
-            margin: 0;
-            background-color: #f4f4f4;
-        }
-        .login-container {
-            background-color: white;
-            padding: 2rem;
-            border-radius: 8px;
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-            text-align: center;
-        }
-        h1 {
-            margin-bottom: 1.5rem;
-        }
-        input[type="password"] {
-            width: 100%;
-            padding: 0.5rem;
-            margin-bottom: 1rem;
-            border: 1px solid #ccc;
-            border-radius: 4px;
-        }
-        button {
-            width: 100%;
-            padding: 0.75rem;
-            border: none;
-            border-radius: 4px;
-            background-color: #007bff;
-            color: white;
-            font-size: 1rem;
-            cursor: pointer;
-        }
-        button:hover {
-            background-color: #0056b3;
-        }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; margin: 0; background-color: #f8f9fa; color: #333; }
+        .container { max-width: 800px; margin: 2rem auto; padding: 2rem; background-color: #fff; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
+        h1, h2 { color: #007bff; }
+        h1 { text-align: center; margin-bottom: 2rem; }
+        .key-list { list-style-type: none; padding: 0; margin-top: 1rem; }
+        .key-item { display: flex; justify-content: space-between; align-items: center; padding: 1rem; background-color: #f1f3f5; border-radius: 4px; margin-bottom: 0.5rem; word-break: break-all; }
+        .key-item:nth-child(odd) { background-color: #e9ecef; }
+        .delete-btn { background-color: #dc3545; color: white; border: none; padding: 0.5rem 1rem; border-radius: 4px; cursor: pointer; transition: background-color 0.2s; }
+        .delete-btn:hover { background-color: #c82333; }
+        .add-key-form { display: flex; gap: 1rem; margin-top: 2rem; }
+        .add-key-form input { flex-grow: 1; padding: 0.75rem; border: 1px solid #ced4da; border-radius: 4px; }
+        .add-key-form button { background-color: #28a745; color: white; border: none; padding: 0.75rem 1.5rem; border-radius: 4px; cursor: pointer; transition: background-color 0.2s; }
+        .add-key-form button:hover { background-color: #218838; }
+        .auth-container { text-align: center; }
+        .auth-container input { padding: 0.5rem; min-width: 300px; margin-right: 1rem; }
+        .message { padding: 1rem; margin: 1rem 0; border-radius: 4px; text-align: center; }
+        .message.success { background-color: #d4edda; color: #155724; }
+        .message.error { background-color: #f8d7da; color: #721c24; }
     </style>
 </head>
 <body>
-    <div class="login-container">
-        <h1>Admin Login</h1>
-        <form id="login-form">
-            <input type="password" id="key" name="key" placeholder="Enter your key" required>
-            <button type="submit">Login</button>
-        </form>
+    <div class="container">
+        <h1>Gemini API Key Management</h1>
+        <div id="auth-section">
+            <h2>Admin Login</h2>
+            <div class="auth-container">
+                <input type="password" id="admin-key" placeholder="Enter Admin Key">
+                <button onclick="login()">Login</button>
+            </div>
+        </div>
+
+        <div id="management-section" style="display: none;">
+            <h2>Current Keys</h2>
+            <ul id="key-list" class="key-list"></ul>
+            <div id="message-container"></div>
+
+            <h2>Add New Key</h2>
+            <form id="add-key-form" class="add-key-form">
+                <input type="text" id="new-key-input" placeholder="Enter new Gemini API Key" required>
+                <button type="submit" id="add-key-btn">Add Key</button>
+            </form>
+        </div>
     </div>
 
     <script>
-        document.getElementById('login-form').addEventListener('submit', async (event) => {
-            event.preventDefault();
+        const authSection = document.getElementById('auth-section');
+        const managementSection = document.getElementById('management-section');
+        const adminKeyInput = document.getElementById('admin-key');
+        const keyList = document.getElementById('key-list');
+        const addKeyForm = document.getElementById('add-key-form');
+        const newKeyInput = document.getElementById('new-key-input');
+        const messageContainer = document.getElementById('message-container');
 
-            const key = document.getElementById('key').value;
-            const errorElement = document.querySelector('.error-message');
-            if(errorElement) {
-                errorElement.remove();
+        let ADMIN_KEY = '';
+
+        function login() {
+            const key = adminKeyInput.value.trim();
+            if (key) {
+                ADMIN_KEY = key;
+                authSection.style.display = 'none';
+                managementSection.style.display = 'block';
+                fetchKeys();
+            } else {
+                alert('Admin key cannot be empty.');
             }
+        }
 
+        function showMessage(type, text) {
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `message ${type}`;
+            messageDiv.textContent = text;
+            messageContainer.innerHTML = ''; // Clear previous messages
+            messageContainer.appendChild(messageDiv);
+            setTimeout(() => messageContainer.innerHTML = '', 5000);
+        }
+
+        async function fetchKeys() {
             try {
-                const response = await fetch('/api/login', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({ key })
+                const response = await fetch('/api/keys', {
+                    headers: { 'Authorization': ADMIN_KEY }
                 });
-
-                if (response.ok) {
-                    window.location.href = '/admin/upload.html';
+                if (response.status === 401) {
+                    logout();
+                    return;
+                }
+                const data = await response.json();
+                if (data.success) {
+                    renderKeys(data.keys);
                 } else {
-                    const message = await response.text();
-                    const container = document.querySelector('.login-container');
-                    const p = document.createElement('p');
-                    p.textContent = `Error: ${message || 'Invalid key'}`;
-                    p.style.color = 'red';
-                    p.classList.add('error-message');
-                    container.appendChild(p);
+                    showMessage('error', `Failed to fetch keys: ${data.message}`);
                 }
             } catch (error) {
-                console.error('Login request failed:', error);
-                alert('An error occurred during login. Please try again.');
+                showMessage('error', `An error occurred: ${error.message}`);
+            }
+        }
+
+        function renderKeys(keys) {
+            keyList.innerHTML = '';
+            if (keys.length === 0) {
+                keyList.innerHTML = '<li>No keys found.</li>';
+                return;
+            }
+            keys.forEach(key => {
+                const li = document.createElement('li');
+                li.className = 'key-item';
+                li.innerHTML = `
+                    <span>${key}</span>
+                    <button class="delete-btn" data-key="${key}">Delete</button>
+                `;
+                keyList.appendChild(li);
+            });
+        }
+
+        keyList.addEventListener('click', (e) => {
+            if (e.target.classList.contains('delete-btn')) {
+                const key = e.target.dataset.key;
+                deleteKey(key);
             }
         });
+
+        addKeyForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const keyToAdd = newKeyInput.value.trim();
+            if (!keyToAdd) return;
+
+            try {
+                const response = await fetch('/api/keys', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': ADMIN_KEY
+                    },
+                    body: JSON.stringify({ key: keyToAdd })
+                });
+                const result = await response.json();
+                 if (response.ok) {
+                    showMessage('success', result.message);
+                    newKeyInput.value = '';
+                    fetchKeys();
+                } else {
+                    showMessage('error', `Error: ${result.message}`);
+                }
+            } catch (error) {
+                showMessage('error', `An error occurred: ${error.message}`);
+            }
+        });
+
+        async function deleteKey(key) {
+            if (!confirm(`Are you sure you want to delete the key ending in ...${key.slice(-4)}?`)) {
+                return;
+            }
+            try {
+                const response = await fetch('/api/keys', {
+                    method: 'DELETE',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': ADMIN_KEY
+                    },
+                    body: JSON.stringify({ key: key })
+                });
+                const result = await response.json();
+                if (response.ok) {
+                    showMessage('success', result.message);
+                    fetchKeys();
+                } else {
+                    showMessage('error', `Error: ${result.message}`);
+                }
+            } catch (error) {
+                showMessage('error', `An error occurred: ${error.message}`);
+            }
+        }
+
+        function logout() {
+            ADMIN_KEY = '';
+            authSection.style.display = 'block';
+            managementSection.style.display = 'none';
+            alert('Authentication failed. Please login again.');
+        }
+
     </script>
 </body>
 </html>

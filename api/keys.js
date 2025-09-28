@@ -11,22 +11,17 @@ const jsonResponse = (data, status = 200) => {
 
 export default {
   
-  async fetch(request, env, ctx) {
+  async fetch(request, ctx) {
 
-    // Compatibility layer that merges worker env and process.env, with worker env taking precedence.
-    const envWrapper = {
-      ...(typeof process !== 'undefined' ? process.env : {}),
-      ...env,
-    };
 
-    if (!verifyAdminKey(request, envWrapper)) {
+    if (!verifyAdminKey(request)) {
       return jsonResponse({ success: false, message: 'Unauthorized' }, 401);
     }
 
     try {
       switch (request.method) {
         case 'GET': {
-          const keys = await getAllKeys(envWrapper);
+          const keys = await getAllKeys();
           return jsonResponse({ success: true, keys });
         }
 
@@ -35,7 +30,7 @@ export default {
           if (!newKey) {
             return jsonResponse({ success: false, message: 'Bad Request: "key" is required.' }, 400);
           }
-          const addResult = await addKey(newKey, envWrapper);
+          const addResult = await addKey(newKey);
           return jsonResponse(addResult, addResult.success ? 201 : 400);
         }
 
@@ -44,7 +39,7 @@ export default {
           if (!keyToDelete) {
             return jsonResponse({ success: false, message: 'Bad Request: "key" is required.' }, 400);
           }
-          const deleteResult = await deleteKey(keyToDelete, envWrapper);
+          const deleteResult = await deleteKey(keyToDelete);
           return jsonResponse(deleteResult, deleteResult.success ? 200 : 404);
         }
 

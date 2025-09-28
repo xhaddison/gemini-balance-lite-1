@@ -22,3 +22,14 @@
 **结论:**
 
 “基石”版本的发布，不仅代表着一个成功的功能交付，更重要的是，它验证了我们的团队协作能力、重构了我们的核心技术、并升级了我们的项目管理AI。我们现在拥有了更稳固的基础，去迎接未来的挑战。
+
+---
+
+## 核心技术标识符 (Core Technical Identifiers) - v2025.09.28
+
+根据“单一事实来源”协议，并遵照您的最终决定，以下为本项目当前阶段唯一、正确的线上环境标识符。所有自动化操作必须以此为准。
+
+- **Vercel Project Name**: `gemini-balance-lite`
+- **Active Deployment URL**: `https://gemini-balance-lite-jqs5ddbsb-xhaddisons-projects.vercel.app`
+- **GitHub Repository**: `https://github.com/xhaddison/gemini-balance-lite-1.git`
+

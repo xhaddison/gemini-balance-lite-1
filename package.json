@@ -10,6 +10,7 @@
     "wrangler": "^4.40.2"
   },
   "dependencies": {
+    "@upstash/redis": "^1.35.4",
     "bcrypt": "^6.0.0",
     "formidable": "^3.5.4",
     "ioredis": "^5.8.0",

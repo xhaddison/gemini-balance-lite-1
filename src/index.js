@@ -2,9 +2,9 @@
 
 
   export default {
-    async fetch (req, env, context) {
+    async fetch (req, context) {
       const url = new URL(req.url);
       console.log('Request URL:', req.url); 
-      return handleRequest(req, env, context);
+      return handleRequest(req, context);
     }
   }

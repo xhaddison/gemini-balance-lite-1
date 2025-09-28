@@ -4,21 +4,21 @@ import { calculateRetryDelay, AdaptiveTimeout, errorTracker, MAX_RETRIES } from 
 const adaptiveTimeout = new AdaptiveTimeout();
 import { OpenAI } from './openai.mjs';
 
-export async function handleRequest(request, env, ctx) {
+export async function handleRequest(request, ctx) {
   const url = new URL(request.url);
 
   if (url.pathname.startsWith('/api/keys')) {
-    return keyApiHandler.fetch(request, env, ctx);
+    return keyApiHandler.fetch(request, ctx);
   }
 
   if (url.pathname.startsWith('/v1/')) {
-    return OpenAI(request, env);
+    return OpenAI(request);
   }
 
   let attempts = 0;
 
   while (attempts < MAX_RETRIES) {
-    const apiKeyObject = await getRandomKey(env);
+    const apiKeyObject = await getRandomKey();
 
     if (!apiKeyObject) {
       break;

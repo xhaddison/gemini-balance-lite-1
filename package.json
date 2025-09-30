@@ -20,7 +20,8 @@
   },
   "scripts": {
     "test": "jest",
-    "dev": "wrangler dev --env-file .env.development.local src/index.js"
+    "dev": "wrangler dev --env-file .env.development.local src/index.js",
+    "deploy": "wrangler deploy src/index.js"
   },
   "jest": {
     "transform": {

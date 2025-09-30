@@ -30,6 +30,6 @@
 根据“单一事实来源”协议，并遵照您的最终决定，以下为本项目当前阶段唯一、正确的线上环境标识符。所有自动化操作必须以此为准。
 
 - **Vercel Project Name**: `gemini-balance-lite`
-- **Active Deployment URL**: `https://gemini-balance-lite-jqs5ddbsb-xhaddisons-projects.vercel.app`
+- **Active Deployment URL**: `https://gemini-balance-lite-p0kovlyvu-xhaddisons-projects.vercel.app`
 - **GitHub Repository**: `https://github.com/xhaddison/gemini-balance-lite-1.git`
 

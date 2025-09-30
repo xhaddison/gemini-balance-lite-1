@@ -1,4 +1,16 @@
 ---
+**Timestamp:** 2025-09-30T10:00:00Z
+**Actor:** Project Manager (Claude)
+**Action:** CRITICAL_DATA_SYNCHRONIZATION
+**Details:**
+- 根据用户提供的截图（权威事实来源），检测到项目核心文件中的生产URL与Vercel实际部署URL存在严重不一致。
+- 旧的、错误的URL: `https://gemini-balance-lite-jqs5ddbsb-xhaddisons-projects.vercel.app`
+- 新的、正确的URL: `https://gemini-balance-lite-p0kovlyvu-xhaddisons-projects.vercel.app`
+- 已成功更新 `Project_Status.md` 和 `Project_Manifest.md` 文件，使项目数据恢复同步与准确。
+- 此操作是为维护项目“单一事实来源”协议的完整性而执行的关键修正。
+---
+
+---
 **Timestamp:** 2025-09-28T19:00:00Z
 **Actor:** Project Manager (Claude)
 **Action:** PRODUCTION_DEPLOYMENT_SUCCESS
@@ -69,3 +81,39 @@
 - 通过重写 `src/openai.mjs` 的核心逻辑，成功修复了该Bug，确保了模块间的正确异步协作与API调用对齐。
 - 最终，使用 `npx wrangler dev` 成功将应用部署至本地环境 (`http://localhost:52586`)，使其进入可供用户验证的状态。
 ---
+
+
+## 2025-09-28T16:57:48.520Z
+
+- **Event**: Production Deployment
+- **Status**: Success
+- **URL**: https://gemini-balance-lite.vercel.app
+- **Details**: Successfully deployed the latest version to the production environment after resolving credential and execution issues.
+
+## 2025-09-28T17:38:17.082Z
+
+- **Event**: Production Deployment & Hotfix
+- **Status**: Success
+- **URL**: https://gemini-balance-lite-p8n3l3rb8-xhaddisons-projects.vercel.app
+- **Details**: Successfully deployed the latest version to the production environment after an extended debugging session. Root cause was identified as incorrect Upstash credentials in Vercel environment variables. The issue was resolved by updating the credentials and redeploying. Application is now protected and returning a 401 Unauthorized status as expected.
+
+## 2025-09-28T18:12:14.450Z
+
+- **Event**: Production Deployment & Hotfix
+- **Status**: Success
+- **URL**: https://gemini-balance-lite-hlbmgwii3-xhaddisons-projects.vercel.app
+- **Details**: Successfully deployed the latest version to the production environment after an extended and painful debugging session. The root cause was identified as a mismatch between the Vercel build configuration (Node.js vs. Edge) and the function signature. This was resolved by correcting the 'vercel.json' file. All systems are now operational.
+
+## 2025-09-28T18:16:42.352Z
+
+- **Event**: Production Deployment & Hotfix
+- **Status**: Success
+- **URL**: https://gemini-balance-lite-hlbmgwii3-xhaddisons-projects.vercel.app
+- **Details**: Successfully deployed the latest version to the production environment after an extended debugging session. Root cause was identified as incorrect Vercel project settings (Password Protection). The issue was resolved by disabling the protection and redeploying. Application is now protected by application-level authentication and returning a 401 Unauthorized status as expected.
+
+## 2025-09-28T18:19:47.274Z
+
+- **Event**: Production Deployment & Hotfix
+- **Status**: Success
+- **URL**: https://gemini-balance-lite-hlbmgwii3-xhaddisons-projects.vercel.app
+- **Details**: Successfully deployed the latest version to the production environment after an extended and painful debugging session. The root cause was identified as a mismatch between the Vercel build configuration (Node.js vs. Edge) and the function signature, compounded by incorrect Upstash credentials. All issues were resolved by correcting the 'vercel.json' file and updating the environment variables. Application is now stable and responding with 401 Unauthorized as expected.

@@ -6,4 +6,4 @@
 
 **生产环境URL**: https://gemini-balance-lite-p0kovlyvu-xhaddisons-projects.vercel.app
 
-**详情**: 阻塞项目的核心代码逻辑错误（位于 `src/openai.mjs`）已由 `developer` agent 成功修复并通过了项目经理的代码审查。项目现已解除阻塞，准备进入最终的、全面的用户验收测试（UAT）阶段。
+**详情**: 阻塞项目的核心代码逻辑错误（位于 `src/openai.mjs`）已成功修复并经过本地验证。此修复解决了因 API `429` 错误导致的无限重试问题。项目现已稳定，准备将此修复部署至生产环境。

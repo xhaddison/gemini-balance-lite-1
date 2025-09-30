@@ -4,23 +4,14 @@ import { getRandomKey } from './key_manager.js';
 const adaptiveTimeout = new AdaptiveTimeout();
 const errorTracker = new ErrorTracker();
 
-let keyManager;
-
-async function initializeKeyManager() {
-  if (!keyManager) {
-    keyManager = await getRandomKey();
-  }
-}
-
 const MAX_RETRIES = 5;
 
 async function fetchWithRetry(url, options) {
-  await initializeKeyManager();
   let retries = 0;
   let lastError = null;
 
   while (retries < MAX_RETRIES) {
-    const apiKey = await keyManager.getKey();
+    const apiKey = await getRandomKey();
     if (!apiKey) {
       console.error('All API keys are unavailable.');
       throw new Error('All API keys are currently unavailable.');
@@ -36,11 +27,14 @@ async function fetchWithRetry(url, options) {
       const response = await fetch(url, options);
       clearTimeout(timeoutId);
 
-      await keyManager.updateKeyStatus(apiKey, response.status);
-
       if (response.ok) {
         adaptiveTimeout.decreaseTimeout();
         return response;
+      }
+
+      if (response.status === 429) {
+        console.error('API quota exceeded. Halting retries.');
+        throw new Error('API quota exceeded. Halting retries.');
       }
 
       const errorData = await response.json().catch(() => ({ status: response.status, message: response.statusText }));
@@ -53,12 +47,12 @@ async function fetchWithRetry(url, options) {
       if (delay > 0) {
         await new Promise(resolve => setTimeout(resolve, delay));
       }
+      retries++; // Increment retries for failed attempts as well
 
     } catch (error) {
       clearTimeout(timeoutId);
       lastError = error;
       errorTracker.trackError(error, apiKey);
-      await keyManager.updateKeyStatus(apiKey, 500); // Generic error code for catch block
 
       if (error.name === 'AbortError') {
         console.error(`Request timed out with key ${apiKey}. Increasing timeout.`);

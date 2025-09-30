@@ -1,6 +1,5 @@
 # Local Netlify folder
 .netlify
-.wrangler
 node_modules/
 .vercel
 # Ignore environment variables file

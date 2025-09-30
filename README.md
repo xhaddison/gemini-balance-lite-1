@@ -56,22 +56,6 @@ Gemini API 代理, 使用边缘函数把Gemini API免费中转到国内。还可
 </details>
 
 
-## Cloudflare Worker 部署
-[![Deploy to Cloudflare Workers](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/xhaddison/gemini-balance-lite-1)
-
-0. CF Worker有可能会分配香港的CDN节点导致无法使用(Gemini不允许香港IP连接)
-0. 广东地区不建议使用Cloudflare Worker 部署
-1. 点击部署按钮
-2. 登录Cloudflare账号
-3. 链接Github账户，部署
-4. 打开dash.cloudflare.com，查看部署后的worker
-6. 国内使用需要配置自定义域名
-<details>
-<summary>配置自定义域名：</summary>
-
-![image](/docs/images/4.png)
-</details>
-
 
 ## Netlify部署
 [![Deploy to Netlify](https://www.netlify.com/img/deploy/button.svg)](https://app.netlify.com/start/deploy?repository=https://github.com/tech-shrimp/gemini-balance-lite)

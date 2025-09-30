@@ -1,14 +1,62 @@
-import { getRandomKey, getAllKeys, addKey, deleteKey } from './key_manager.js';
-import keyApiHandler from '../api/keys.js';
+import { getRandomKey, getAllKeys, addKey, deleteKey, verifyAdminKey } from './key_manager.js';
 import { calculateRetryDelay, AdaptiveTimeout, errorTracker, MAX_RETRIES } from './utils.js';
 const adaptiveTimeout = new AdaptiveTimeout();
 import { OpenAI } from './openai.mjs';
+
+const jsonResponse = (data, status = 200) => {
+  return new Response(JSON.stringify(data), {
+    status,
+    headers: { 'Content-Type': 'application/json' },
+  });
+};
 
 export async function handleRequest(request, ctx) {
   const url = new URL(request.url);
 
   if (url.pathname.startsWith('/api/keys')) {
-    return keyApiHandler.fetch(request, ctx);
+    // Directly handle the API logic here
+    if (!verifyAdminKey(request)) {
+      return jsonResponse({ success: false, message: 'Unauthorized' }, 401);
+    }
+
+    try {
+      switch (request.method) {
+        case 'GET': {
+          const keys = await getAllKeys();
+          return jsonResponse({ success: true, keys });
+        }
+
+        case 'POST': {
+          const { key: newKey } = await request.json();
+          if (!newKey) {
+            return jsonResponse({ success: false, message: 'Bad Request: "key" is required.' }, 400);
+          }
+          const addResult = await addKey(newKey);
+          return jsonResponse(addResult, addResult.success ? 201 : 400);
+        }
+
+        case 'DELETE': {
+          const { key: keyToDelete } = await request.json();
+          if (!keyToDelete) {
+            return jsonResponse({ success: false, message: 'Bad Request: "key" is required.' }, 400);
+          }
+          const deleteResult = await deleteKey(keyToDelete);
+          return jsonResponse(deleteResult, deleteResult.success ? 200 : 404);
+        }
+
+        default:
+          return new Response(`Method ${request.method} Not Allowed`, {
+            status: 405,
+            headers: { 'Allow': 'GET, POST, DELETE' },
+          });
+      }
+    } catch (error) {
+       console.error(`[API /api/keys] Error during ${request.method} request:`, error);
+      if (error instanceof SyntaxError) {
+        return jsonResponse({ success: false, message: 'Invalid JSON body.' }, 400);
+      }
+      return jsonResponse({ success: false, message: 'Internal Server Error' }, 500);
+    }
   }
 
   if (url.pathname.startsWith('/v1/')) {

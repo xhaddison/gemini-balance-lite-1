@@ -1,5 +1,19 @@
 ---
 ---
+**时间戳:** 2025-10-01T23:00:00Z
+**执行者:** 项目经理 (Claude)
+**行动:** PROD_CRITICAL_BUG_FIX_AND_VALIDATION
+**详情:**
+- **事件:** 成功诊断并修复了一个隐藏极深的、导致生产环境管理员面板完全无法使用的严重Bug。
+- **诊断过程:** 这是一个复杂且充满误导的调查过程。问题最初表现为 `401 Unauthorized`，随后演变为 `404 Not Found`，最终在对项目结构和路由进行规范化后，又回归为 `401 Unauthorized`。通过对生产环境的直接、最终测试，我们排除了所有环境和配置问题，最终将焦点锁定在数据本身。
+- **根本原因:** `verifyAdminKey` 函数中的严格相等比较 (`===`)，由于生产环境变量 (`ADMIN_LOGIN_KEY`) 中存在不可见的空白字符（数据污染）而持续失败。
+- **修复措施:**
+  1.  在 `verifyAdminKey` 函数的比较逻辑中，对 `token` 和 `process.env.ADMIN_LOGIN_KEY` 双方都应用了 `.trim()` 方法，使比较逻辑对空白字符具有弹性。
+  2.  对项目结构进行了规范化（将 `src/index.js` 移至 `api/index.js`）并简化了 `vercel.json`，提升了项目的长期可维护性。
+- **质量保证:** 此次修复已通过针对最新生产部署 (`https://gemini-balance-lite-naasl1815-xhaddisons-projects.vercel.app`) 的、完整的端到端自动化测试 (`tests/final_validation.js`) 的严格验证。
+- **结论:** 项目最严重的一个生产环境Bug已被彻底根除。应用的稳定性和健壮性达到了一个新的高度。
+---
+---
 **时间戳:** 2025-10-01T22:45:00Z
 **执行者:** 项目经理 (Claude)
 **行动:** LOCAL_VALIDATION_CYCLE_COMPLETED_SUCCESSFULLY

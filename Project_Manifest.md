@@ -8,6 +8,14 @@
 
 ## 里程碑 (Milestones)
 
+### 里程碑: "本地验证与Bug修复周期" (v2025.10.01)
+- **状态**: 已完成
+- **核心交付物**: `docs/UAT_Report_Local_Validation_and_Bug_Fix_Cycle_2025-10-01.md`
+- **核心成就**:
+  - 在本地环境中成功复现并修复了两个严重的功能性Bug（授权失效、DOM竞争条件）。
+  - 通过此周期，确保了生产部署版本的代码质量与稳定性，达到了可交付标准。
+  - 将复杂的调试与验证过程，沉淀为高质量的、可追溯的UAT报告，成为项目知识库的重要组成部分。
+
 ### 版本 v2025.09.23: “基石”
 **发布日期:** 2025-09-23
 
@@ -30,6 +38,23 @@
 根据“单一事实来源”协议，并遵照您的最终决定，以下为本项目当前阶段唯一、正确的线上环境标识符。所有自动化操作必须以此为准。
 
 - **Vercel Project Name**: `gemini-balance-lite`
-- **Active Deployment URL**: `https://gemini-balance-lite-p0kovlyvu-xhaddisons-projects.vercel.app`
+- **Active Deployment URL**: `https://gemini-balance-lite-ohptkc2e2-xhaddisons-projects.vercel.app`
 - **GitHub Repository**: `https://github.com/xhaddison/gemini-balance-lite-1.git`
 
+## 核心技术栈 (Core Tech Stack) - v2025.10.01
+- **部署平台 (Deployment Platform)**: Vercel
+- **数据库 (Database)**: Upstash
+
+## 下一个里程碑: "自动化部署管道" (Next Milestone: "Automated Deployment Pipeline")
+- **状态**: 已完成 (v1.0)
+- **需求来源**: `docs/PRD_Automated_Deployment_Pipeline.md`
+- **核心交付物**: `/scripts/deploy_and_verify.js`
+- **核心目标**: 将手动、易错的“部署 -> 验证 -> 文档同步”流程，转化为一个可复用的、自动化的核心组件，以根除项目历史中反复出现的部署失败问题。
+
+
+
+Production URL: https://gemini-balance-lite-1i3yeu99a-xhaddisons-projects.vercel.app
+
+Production URL: https://gemini-balance-lite-ohptkc2e2-xhaddisons-projects.vercel.app
+
+Production URL: https://gemini-balance-lite-ovlvubth4-xhaddisons-projects.vercel.app

@@ -101,7 +101,7 @@ export function verifyAdminKey(request) {
     return false;
   }
   const token = authHeader.substring(7); // "Bearer ".length
-  return token === process.env.ADMIN_LOGIN_KEY;
+  return token.trim() === process.env.ADMIN_LOGIN_KEY.trim();
 }
 
 /**

@@ -1,0 +1,124 @@
+const { test, expect } = require('@playwright/test');
+
+const ADMIN_KEY = process.env.ADMIN_LOGIN_KEY || 'claude-code-super-secret-key-2025';
+const BASE_URL = process.env.BASE_URL || 'http://localhost:3000'; // Default to 3000, vercel dev default
+const ADMIN_URL = `${BASE_URL}/public/admin.html`;
+
+// Define a test key that is unlikely to already exist
+const TEST_KEY = `test-key-${Date.now()}`;
+
+test.describe('Dynamic API Key Management Regression Test', () => {
+
+  test.beforeEach(async ({ page }) => {
+    await page.goto(ADMIN_URL);
+  });
+
+  test('UAT-DM-001 & UAT-DM-003: Authentication Success and Display Key List', async ({ page }) => {
+    await page.getByTestId('admin-key-input').fill(ADMIN_KEY);
+    await page.getByTestId('login-button').click();
+
+    // After login, management section should be visible and auth section hidden
+    await expect(page.locator('#management-section')).toBeVisible();
+    await expect(page.locator('#auth-section')).toBeHidden();
+
+    // The key list should be populated (even if it's just 'No keys found.')
+    await expect(page.locator('#key-list')).not.toBeEmpty();
+  });
+
+  test('UAT-DM-002: Authentication Failure', async ({ page }) => {
+    // Intercept the alert dialog
+    let alertMessage = '';
+    page.on('dialog', async dialog => {
+      alertMessage = dialog.message();
+      await dialog.dismiss();
+    });
+
+    await page.getByTestId('admin-key-input').fill('wrong-key');
+    await page.getByTestId('login-button').click();
+
+    // Even after a wrong "login", try to fetch keys which will trigger the actual API auth failure
+    await page.evaluate(() => (window as any).fetchKeys());
+
+    // Check that the appropriate alert was shown
+    expect(alertMessage).toContain('Authentication failed');
+    // After failed auth, the user should be back to the login screen
+    await expect(page.locator('#auth-section')).toBeVisible();
+    await expect(page.locator('#management-section')).toBeHidden();
+  });
+
+  test('UAT-DM-004: Add a Single Key - Success', async ({ page }) => {
+    await page.getByTestId('admin-key-input').fill(ADMIN_KEY);
+    await page.getByTestId('login-button').click();
+
+    await page.getByTestId('new-key-input').fill(TEST_KEY);
+    await page.getByTestId('add-key-button').click();
+
+    // Check for success message
+    const successMessage = page.locator('.message.success');
+    await expect(successMessage).toBeVisible();
+    await expect(successMessage).toContainText('Key added successfully');
+
+    // The new key should now be in the list
+    await expect(page.locator(`#key-list li:has-text("${TEST_KEY}")`)).toBeVisible();
+  });
+
+  test('UAT-DM-005: Add a Single Key - Empty Input', async ({ page }) => {
+    await page.getByTestId('admin-key-input').fill(ADMIN_KEY);
+    await page.getByTestId('login-button').click();
+
+    const initialKeyCount = await page.locator('.key-item').count();
+
+    await page.getByTestId('add-key-button').click();
+
+    const finalKeyCount = await page.locator('.key-item').count();
+
+    // No API call should be made, and the key count should not change.
+    expect(finalKeyCount).toBe(initialKeyCount);
+  });
+
+  test.describe('Deletion Tests', () => {
+    // Ensure the test key exists before trying to delete it
+    test.beforeEach(async ({ page }) => {
+        await page.goto(ADMIN_URL);
+        await page.getByTestId('admin-key-input').fill(ADMIN_KEY);
+        await page.getByTestId('login-button').click();
+
+        // Check if test key already exists. If not, add it.
+        const keyExists = await page.locator(`span:has-text("${TEST_KEY}")`).isVisible();
+        if (!keyExists) {
+            await page.getByTestId('new-key-input').fill(TEST_KEY);
+            await page.getByTestId('add-key-button').click();
+            await expect(page.locator(`span:has-text("${TEST_KEY}")`)).toBeVisible();
+        }
+    });
+
+    test('UAT-DM-006: Delete a Single Key - Confirm', async ({ page }) => {
+      // Handle the confirmation dialog
+      page.on('dialog', async dialog => {
+        expect(dialog.message()).toContain(`delete the key ending in ...${TEST_KEY.slice(-4)}`);
+        await dialog.accept();
+      });
+
+      await page.getByTestId(`delete-btn-${TEST_KEY}`).click();
+
+      // Check for success message
+      const successMessage = page.locator('.message.success');
+      await expect(successMessage).toBeVisible();
+      await expect(successMessage).toContainText('Key deleted successfully');
+
+      // The key should be removed from the list
+      await expect(page.locator(`span:has-text("${TEST_KEY}")`)).toBeHidden();
+    });
+
+    test('UAT-DM-007: Delete a Single Key - Cancel', async ({ page }) => {
+      page.on('dialog', async dialog => {
+        await dialog.dismiss();
+      });
+
+      await page.getByTestId(`delete-btn-${TEST_KEY}`).click();
+
+      // The key should still be in the list
+      await expect(page.locator(`span:has-text("${TEST_KEY}")`)).toBeVisible();
+    });
+  });
+});

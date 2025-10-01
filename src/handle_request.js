@@ -11,6 +11,7 @@ const jsonResponse = (data, status = 200) => {
 };
 
 export async function handleRequest(request, ctx) {
+  console.log('Received headers:', JSON.stringify(Object.fromEntries(request.headers.entries())));
   const url = new URL(request.url);
 
   if (url.pathname.startsWith('/api/keys')) {

@@ -36,7 +36,7 @@
             </div>
         </div>
 
-        <div id="management-section" style="display: none;">
+        <div id="management-section" style="display: none;" data-testid="key-management-section">
             <h2>Current Keys</h2>
             <ul id="key-list" class="key-list"></ul>
             <div id="message-container"></div>
@@ -64,8 +64,7 @@
             const key = adminKeyInput.value.trim();
             if (key) {
                 ADMIN_KEY = key;
-                authSection.style.display = 'none';
-                managementSection.style.display = 'block';
+                // The UI state change should be driven by the result of fetchKeys, not optimistically here.
                 fetchKeys();
             } else {
                 alert('Admin key cannot be empty.');
@@ -92,6 +91,8 @@
                 }
                 const data = await response.json();
                 if (data.success) {
+                    authSection.style.display = 'none';
+                    managementSection.style.display = 'block';
                     renderKeys(data.keys);
                 } else {
                     showMessage('error', `Failed to fetch keys: ${data.message}`);
@@ -108,14 +109,20 @@
                 return;
             }
             keys.forEach(key => {
-                const li = document.createElement('li');
-                li.className = 'key-item';
-                li.innerHTML = `
-                    <span>${key}</span>
-                    <button class="delete-btn" data-key="${key}" data-testid="delete-btn-${key}">Delete</button>
-                `;
-                keyList.appendChild(li);
+                const keyItem = createKeyItemElement(key);
+                keyList.appendChild(keyItem);
             });
+        }
+
+        function createKeyItemElement(key) {
+            const li = document.createElement('li');
+            li.className = 'key-item';
+            li.setAttribute('data-testid', `key-row-${key}`);
+            li.innerHTML = `
+                <span>${key}</span>
+                <button class="delete-btn" data-key="${key}" data-testid="delete-btn-${key}">Delete</button>
+            `;
+            return li;
         }
 
         keyList.addEventListener('click', (e) => {
@@ -140,12 +147,12 @@
                     body: JSON.stringify({ key: keyToAdd })
                 });
                 const result = await response.json();
-                 if (response.ok) {
-                    showMessage('success', result.message);
+                 if (response.ok && result.success) {
+                    showMessage('success', result.message || 'Key added successfully');
                     newKeyInput.value = '';
                     fetchKeys();
                 } else {
-                    showMessage('error', `Error: ${result.message}`);
+                    showMessage('error', `Error: ${result.message || 'An unknown error occurred'}`);
                 }
             } catch (error) {
                 showMessage('error', `An error occurred: ${error.message}`);
@@ -168,7 +175,8 @@
                 const result = await response.json();
                 if (response.ok) {
                     showMessage('success', result.message);
-                    fetchKeys();
+                    const itemToRemove = keyList.querySelector(`[data-testid="key-row-${key}"]`);
+                    if (itemToRemove) itemToRemove.remove();
                 } else {
                     showMessage('error', `Error: ${result.message}`);
                 }
@@ -181,7 +189,7 @@
             ADMIN_KEY = '';
             authSection.style.display = 'block';
             managementSection.style.display = 'none';
-            alert('Authentication failed. Please login again.');
+            // alert('Authentication failed. Please login again.');
         }
 
     </script>

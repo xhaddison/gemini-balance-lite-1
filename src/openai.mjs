@@ -170,10 +170,11 @@ function convertToGeminiRequest(openaiRequest) {
 
 const modelMap = new Map([
     // DEFINITIVE MAPPING based on authoritative ListModels API call
-    ['gemini-pro', 'gemini-pro-latest'],
-    ['gemini-1.5-flash', 'gemini-flash-latest'],
     ['gemini-2.5-pro', 'gemini-2.5-pro'],
     ['gemini-2.5-flash', 'gemini-2.5-flash'],
+    // Fallback for older models for maximum compatibility
+    ['gemini-pro', 'gemini-2.5-pro'],
+    ['gemini-1.5-flash', 'gemini-2.5-flash'],
 ]);
 
 export async function OpenAI(request) {
@@ -194,7 +195,7 @@ export async function OpenAI(request) {
     if (requestedModel && modelMap.has(requestedModel)) {
       model = modelMap.get(requestedModel);
     } else {
-      model = 'gemini-pro-latest'; // CRITICAL FIX: Fallback to a known valid default model.
+      model = 'gemini-2.5-pro'; // CRITICAL FIX: Fallback to a known valid default model based on ListModels API.
       if (requestedModel) {
         console.warn(`[OpenAI] Model mapping not found for requested model: '${requestedModel}'. Falling back to '${model}'.`);
       }

@@ -132,27 +132,34 @@ function convertToGeminiRequest(openaiRequest) {
 }
 
 export async function OpenAI(request) {
-  const geminiRequest = convertToGeminiRequest(request);
-
-  // We need to adjust the URL based on the model and whether we are streaming.
-  // Using a simplified, non-streaming model endpoint for now.
-  const model = "gemini-pro"; // Or derive from request if needed
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
-
-  const options = {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      // The API key is now added in fetchWithRetry, so we don't set it here.
-    },
-    body: JSON.stringify(geminiRequest),
-  };
-
   try {
+    // CRITICAL FIX: The request body must be parsed from the incoming request.
+    const requestBody = await request.json();
+    const { messages } = requestBody;
+
+    // Ensure messages is an array before proceeding
+    if (!Array.isArray(messages)) {
+        throw new Error("Invalid request body: 'messages' must be an array.");
+    }
+
+    // Pass the entire request body to the conversion function
+    const geminiRequest = convertToGeminiRequest(requestBody);
+
+    const model = "gemini-pro";
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
+
+    const options = {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(geminiRequest),
+    };
+
     const response = await fetchWithRetry(url, options);
 
-    // The response from Gemini is different from OpenAI, so we need to transform it back.
-    // This is a placeholder for the transformation logic. For now, we return the raw response.
+    // Assuming the client expects an OpenAI-like JSON response.
+    // A more complete solution would transform the Gemini response back to OpenAI format.
     return response.json();
 
   } catch (error) {

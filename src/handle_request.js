@@ -136,6 +136,7 @@ export async function handleRequest(request, ctx) {
   }
 
   let attempts = 0;
+  const requestBody = await request.json();
 
   while (attempts < MAX_RETRIES) {
     const apiKeyObject = await getRandomKey();
@@ -163,7 +164,7 @@ export async function handleRequest(request, ctx) {
       const response = await fetch(targetUrl, {
         method: request.method,
         headers: headers,
-        body: request.body,
+        body: JSON.stringify(requestBody),
         signal: controller.signal
       });
 

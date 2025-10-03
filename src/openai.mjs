@@ -146,7 +146,14 @@ function convertToGeminiRequest(openaiRequest) {
   // For simplicity, we'll take the content from the last user message as the prompt.
   // A more robust solution would handle multi-turn conversations.
   const lastUserMessage = messages.filter(m => m.role === 'user').pop();
-  const prompt = lastUserMessage ? lastUserMessage.content : '';
+  let prompt = '';
+  if (lastUserMessage) {
+    if (typeof lastUserMessage.content === 'string') {
+      prompt = lastUserMessage.content;
+    } else if (Array.isArray(lastUserMessage.parts) && lastUserMessage.parts[0] && typeof lastUserMessage.parts[0].text === 'string') {
+      prompt = lastUserMessage.parts[0].text;
+    }
+  }
 
   return {
     contents: [

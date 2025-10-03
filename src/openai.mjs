@@ -168,9 +168,9 @@ function convertToGeminiRequest(openaiRequest) {
 
 const modelMap = new Map([
     // Mapping from OpenAI model names to Google Gemini model names
-    ['gemini-1.5-pro-latest', 'gemini-1.5-pro-latest'],
-    ['gemini-pro', 'gemini-1.5-pro-latest'], // Corrected mapping for gemini-pro
-    ['gemini-1.5-flash', 'gemini-1.5-flash-latest'],
+    ['gemini-pro-latest', 'gemini-pro-latest'],
+    ['gemini-pro', 'gemini-pro-latest'], // Corrected mapping for gemini-pro
+    ['gemini-1.5-flash', 'gemini-flash-latest'],
 ]);
 
 export async function OpenAI(request) {
@@ -191,7 +191,7 @@ export async function OpenAI(request) {
     if (requestedModel && modelMap.has(requestedModel)) {
       model = modelMap.get(requestedModel);
     } else {
-      model = 'gemini-1.5-pro-latest'; // CRITICAL FIX: Fallback to a known valid default model.
+      model = 'gemini-pro-latest'; // CRITICAL FIX: Fallback to a known valid default model.
       if (requestedModel) {
         console.warn(`[OpenAI] Model mapping not found for requested model: '${requestedModel}'. Falling back to '${model}'.`);
       }

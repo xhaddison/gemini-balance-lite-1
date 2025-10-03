@@ -1,11 +1,11 @@
 # 项目状态
 
-**最后更新**: 2025-10-04T22:05:00Z
+**最后更新**: 2025-10-04T23:30:00Z
 
-**当前状态**: STABLE / VERIFIED
+**当前状态**: STABLE / FUNCTIONALLY_VERIFIED
 
-**生产环境URL**: https://gemini-balance-lite.vercel.app
+**生产环境URL**: https://gemini-balance-lite-hplp043np-xhaddisons-projects.vercel.app
 
 **详情**:
-- **摘要**: 生产环境已通过独立的健康检查 (`curl`) 验证，返回 `HTTP/2 200 OK`。所有已知的 `502` 事故相关问题均已彻底解决。项目当前处于一个经过完全验证的、稳定的状态。
-- **历史部署URL**: https://gemini-balance-lite-ctnvoi1a2-xhaddisons-projects.vercel.app
+- **摘要**: 生产环境的核心 API 功能已通过端到端的 `curl` 调用 (`/v1/chat/completions`) 验证，返回 `HTTP/2 200 OK`。所有已知的模型映射回归 Bug 均已彻底解决。项目功能完全可用。
+- **历史部署URL**: https://gemini-balance-lite.vercel.app

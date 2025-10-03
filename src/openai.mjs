@@ -150,6 +150,8 @@ function convertToGeminiRequest(openaiRequest) {
   if (lastUserMessage) {
     if (typeof lastUserMessage.content === 'string') {
       prompt = lastUserMessage.content;
+    } else if (Array.isArray(lastUserMessage.content) && lastUserMessage.content[0] && typeof lastUserMessage.content[0].text === 'string') { // Check for array of parts
+      prompt = lastUserMessage.content[0].text;
     } else if (Array.isArray(lastUserMessage.parts) && lastUserMessage.parts[0] && typeof lastUserMessage.parts[0].text === 'string') {
       prompt = lastUserMessage.parts[0].text;
     }

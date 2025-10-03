@@ -19,7 +19,9 @@
     "iron-session": "^8.0.4",
     "node-fetch": "^3.3.2",
     "playwright": "^1.55.1",
+    "playwright-extra": "^4.3.6",
     "puppeteer": "^24.22.3",
+    "puppeteer-extra-plugin-stealth": "^2.11.2",
     "winston": "^3.17.0"
   },
   "scripts": {

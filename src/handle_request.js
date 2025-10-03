@@ -1,4 +1,4 @@
-import { getRandomKey, getAllKeys, addKey, deleteKey, verifyAdminKey } from './key_manager.js';
+import { getRandomKey, getAllKeys, addKey, deleteKey, verifyAdminKey, addKeysBulk } from './key_manager.js';
 import { calculateRetryDelay, AdaptiveTimeout, errorTracker, MAX_RETRIES } from './utils.js';
 const adaptiveTimeout = new AdaptiveTimeout();
 import { OpenAI } from './openai.mjs';
@@ -10,58 +10,114 @@ const jsonResponse = (data, status = 200) => {
   });
 };
 
+// --- START: Refactored API Route Handlers ---
+
+async function handleAdminRequest(request) {
+  if (!verifyAdminKey(request)) {
+    return jsonResponse({ success: false, message: 'Unauthorized' }, 401);
+  }
+
+  try {
+    switch (request.method) {
+      case 'GET': {
+        const keys = await getAllKeys();
+        return jsonResponse({ success: true, keys });
+      }
+      case 'POST': {
+        const { key: newKey } = await request.json();
+        if (!newKey) {
+          return jsonResponse({ success: false, message: 'Bad Request: "key" is required.' }, 400);
+        }
+        const addResult = await addKey(newKey);
+        return jsonResponse(addResult, addResult.success ? 201 : 400);
+      }
+      case 'DELETE': {
+        const { key: keyToDelete } = await request.json();
+        if (!keyToDelete) {
+          return jsonResponse({ success: false, message: 'Bad Request: "key" is required.' }, 400);
+        }
+        const deleteResult = await deleteKey(keyToDelete);
+        return jsonResponse(deleteResult, deleteResult.success ? 200 : 404);
+      }
+      default:
+        return new Response(`Method ${request.method} Not Allowed`, {
+          status: 405,
+          headers: { 'Allow': 'GET, POST, DELETE' },
+        });
+    }
+  } catch (error) {
+    console.error(`[API /api/keys] Error during ${request.method} request:`, error);
+    if (error instanceof SyntaxError) {
+      return jsonResponse({ success: false, message: 'Invalid JSON body.' }, 400);
+    }
+    return jsonResponse({ success: false, message: 'Internal Server Error' }, 500);
+  }
+}
+
+async function handleBulkUploadRequest(request) {
+    if (!verifyAdminKey(request)) {
+        return jsonResponse({ success: false, message: 'Unauthorized' }, 401);
+    }
+
+    if (request.method !== 'POST') {
+        return new Response('Method Not Allowed', { status: 405, headers: { 'Allow': 'POST' } });
+    }
+
+    try {
+        const formData = await request.formData();
+        const file = formData.get('keyFile');
+
+        if (!file) {
+            return jsonResponse({ success: false, message: 'Bad Request: "keyFile" is required.' }, 400);
+        }
+
+        const text = await file.text();
+        const keys = text.split('\n').filter(k => k.trim() !== '');
+
+        if (keys.length === 0) {
+            return jsonResponse({
+                success: true, total_keys_in_file: 0, successfully_added: 0, failed_entries: [],
+                message: 'The uploaded file is empty or contains no valid keys.'
+            });
+        }
+
+        const bulkResult = await addKeysBulk(keys);
+        return jsonResponse({ ...bulkResult, total_keys_in_file: keys.length }, bulkResult.success ? 200 : 500);
+
+    } catch (error) {
+        console.error('[API /api/keys/bulk-upload] Error:', error);
+        // This can happen if the body is not multipart/form-data
+        return jsonResponse({ success: false, message: 'Failed to parse form data. Is the request correct?' }, 400);
+    }
+}
+
+
+// --- END: Refactored API Route Handlers ---
+
+
 export async function handleRequest(request, ctx) {
   console.log('Received headers:', JSON.stringify(Object.fromEntries(request.headers.entries())));
   const url = new URL(request.url);
 
+  // --- START: Main Router ---
+  if (url.pathname === '/api/keys/bulk-upload') {
+    return handleBulkUploadRequest(request);
+  }
+
   if (url.pathname.startsWith('/api/keys')) {
-    // Directly handle the API logic here
-    if (!verifyAdminKey(request)) {
-      return jsonResponse({ success: false, message: 'Unauthorized' }, 401);
-    }
-
-    try {
-      switch (request.method) {
-        case 'GET': {
-          const keys = await getAllKeys();
-          return jsonResponse({ success: true, keys });
-        }
-
-        case 'POST': {
-          const { key: newKey } = await request.json();
-          if (!newKey) {
-            return jsonResponse({ success: false, message: 'Bad Request: "key" is required.' }, 400);
-          }
-          const addResult = await addKey(newKey);
-          return jsonResponse(addResult, addResult.success ? 201 : 400);
-        }
-
-        case 'DELETE': {
-          const { key: keyToDelete } = await request.json();
-          if (!keyToDelete) {
-            return jsonResponse({ success: false, message: 'Bad Request: "key" is required.' }, 400);
-          }
-          const deleteResult = await deleteKey(keyToDelete);
-          return jsonResponse(deleteResult, deleteResult.success ? 200 : 404);
-        }
-
-        default:
-          return new Response(`Method ${request.method} Not Allowed`, {
-            status: 405,
-            headers: { 'Allow': 'GET, POST, DELETE' },
-          });
-      }
-    } catch (error) {
-       console.error(`[API /api/keys] Error during ${request.method} request:`, error);
-      if (error instanceof SyntaxError) {
-        return jsonResponse({ success: false, message: 'Invalid JSON body.' }, 400);
-      }
-      return jsonResponse({ success: false, message: 'Internal Server Error' }, 500);
-    }
+    return handleAdminRequest(request);
   }
 
   if (url.pathname.startsWith('/v1/')) {
     return OpenAI(request);
+  }
+  // --- END: Main Router ---
+
+  if (url.pathname === '/') {
+    return jsonResponse({
+      success: true,
+      message: 'API is running. See documentation for valid endpoints.'
+    });
   }
 
   let attempts = 0;
@@ -70,7 +126,11 @@ export async function handleRequest(request, ctx) {
     const apiKeyObject = await getRandomKey();
 
     if (!apiKeyObject) {
-      break;
+      console.error("CRITICAL: No API keys available in the key pool. Halting request processing.");
+      return jsonResponse({
+        success: false,
+        message: 'The service is currently unavailable as there are no active API keys. Please contact the administrator.'
+      }, 503);
     }
 
     const pathname = url.pathname;
@@ -96,7 +156,6 @@ export async function handleRequest(request, ctx) {
 
       if (response.ok) {
         adaptiveTimeout.decreaseTimeout();
-        // Key status is not managed in this simplified version.
         const responseHeaders = new Headers(response.headers);
         responseHeaders.set('Referrer-Policy', 'no-referrer');
         return new Response(response.body, {
@@ -118,11 +177,11 @@ export async function handleRequest(request, ctx) {
       }
 
       await new Promise(resolve => setTimeout(resolve, calculateRetryDelay(error, attempts)));
+    } finally {
       attempts++;
     }
   }
 
-  // If the loop finishes, all retries have failed.
   return new Response('The request failed after multiple retries.', {
     status: 502,
   });

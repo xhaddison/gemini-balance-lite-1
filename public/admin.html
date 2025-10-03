@@ -23,6 +23,32 @@
         .message { padding: 1rem; margin: 1rem 0; border-radius: 4px; text-align: center; }
         .message.success { background-color: #d4edda; color: #155724; }
         .message.error { background-color: #f8d7da; color: #721c24; }
+        .message.info { background-color: #e2e3e5; color: #383d41; }
+        .message.warning { background-color: #fff3cd; color: #856404; }
+
+        .secondary-btn {
+            background-color: #6c757d;
+            color: white;
+        }
+        .secondary-btn:hover {
+            background-color: #5a6268;
+        }
+
+        .spinner {
+            border: 4px solid rgba(0, 0, 0, 0.1);
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            border-left-color: #007bff;
+            animation: spin 1s ease infinite;
+            display: inline-block;
+            margin-right: 10px;
+            vertical-align: middle;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
     </style>
 </head>
 <body>
@@ -45,9 +71,12 @@
             <form id="add-key-form" class="add-key-form">
                 <input type="text" id="new-key-input" placeholder="Enter new Gemini API Key" data-testid="new-key-input" required>
                 <button type="submit" id="add-key-btn" data-testid="add-key-button">Add Key</button>
+                <button type="button" id="bulk-upload-btn" class="secondary-btn">Bulk Upload</button>
             </form>
         </div>
     </div>
+
+    <input type="file" id="key-file-input" accept=".txt" style="display: none;">
 
     <script>
         const authSection = document.getElementById('auth-section');
@@ -57,8 +86,104 @@
         const addKeyForm = document.getElementById('add-key-form');
         const newKeyInput = document.getElementById('new-key-input');
         const messageContainer = document.getElementById('message-container');
+        const bulkUploadBtn = document.getElementById('bulk-upload-btn');
+        const keyFileInput = document.getElementById('key-file-input');
+        const addKeyBtn = document.getElementById('add-key-btn');
 
         let ADMIN_KEY = '';
+
+        // --- Bulk Upload Logic ---
+        bulkUploadBtn.addEventListener('click', () => {
+            keyFileInput.click();
+        });
+
+        keyFileInput.addEventListener('change', (event) => {
+            const file = event.target.files[0];
+            if (file) {
+                uploadKeyFile(file);
+            }
+            // Reset file input to allow re-uploading the same file
+            event.target.value = null;
+        });
+
+        async function uploadKeyFile(file) {
+            setButtonsDisabled(true);
+            showUploadSpinner();
+
+            const formData = new FormData();
+            formData.append('keyFile', file);
+
+            try {
+                const response = await fetch('/api/keys/bulk-upload', {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': 'Bearer ' + ADMIN_KEY
+                    },
+                    body: formData
+                });
+                const result = await response.json();
+                handleUploadResponse(result);
+            } catch (error) {
+                showMessage('error', `An unexpected error occurred: ${error.message}`);
+            } finally {
+                setButtonsDisabled(false);
+                fetchKeys(); // Always refresh the key list
+            }
+        }
+
+        function handleUploadResponse(result) {
+            const { success, total_keys_in_file, successfully_added, failed_entries, message } = result;
+
+            if (!success) {
+                showMessage('error', `Upload failed: ${message}`);
+                return;
+            }
+
+            const failed_count = failed_entries ? failed_entries.length : 0;
+
+            if (failed_count === 0 && successfully_added > 0) {
+                showMessage('success', `Success! ${successfully_added} new API keys have been added.`);
+            } else if (successfully_added > 0 && failed_count > 0) {
+                const logUrl = generateFailureLog(failed_entries);
+                messageContainer.innerHTML = `
+                    <div class="message warning">
+                        Operation complete. Successfully added: ${successfully_added}, Failed: ${failed_count}.
+                        <a href="${logUrl}" download="failed_keys_log.txt">Download Failure Log</a>
+                    </div>
+                `;
+            } else if (successfully_added === 0 && failed_count > 0) {
+                 showMessage('error', `Upload failed. All ${failed_count} keys in the file were invalid or already exist.`);
+            } else {
+                 showMessage('error', 'Upload failed. The file may be empty or contain no valid keys.');
+            }
+        }
+
+        function generateFailureLog(failedEntries) {
+            let logContent = 'Failed to add the following keys:\n\n';
+            failedEntries.forEach(entry => {
+                const lineInfo = entry.line ? `(Line: ${entry.line}) ` : '';
+                const keyInfo = entry.key ? `Key: ${entry.key}` : 'Entry';
+                logContent += `${lineInfo}${keyInfo} - Reason: ${entry.reason}\n`;
+            });
+            const blob = new Blob([logContent], { type: 'text/plain' });
+            return URL.createObjectURL(blob);
+        }
+
+        function showUploadSpinner() {
+            messageContainer.innerHTML = `
+                <div class="message info">
+                    <div class="spinner"></div>
+                    <span>Uploading and processing... Please wait.</span>
+                </div>
+            `;
+        }
+
+        function setButtonsDisabled(disabled) {
+            addKeyBtn.disabled = disabled;
+            bulkUploadBtn.disabled = disabled;
+        }
+
+        // --- Original Logic ---
 
         function login() {
             const key = adminKeyInput.value.trim();
@@ -83,7 +208,7 @@
         async function fetchKeys() {
             try {
                 const response = await fetch('/api/keys', {
-                    headers: { 'Authorization': ADMIN_KEY }
+                    headers: { 'Authorization': 'Bearer ' + ADMIN_KEY }
                 });
                 if (response.status === 401) {
                     logout();
@@ -91,6 +216,7 @@
                 }
                 const data = await response.json();
                 if (data.success) {
+                    localStorage.setItem('admin_key', ADMIN_KEY); // Save key on successful login
                     authSection.style.display = 'none';
                     managementSection.style.display = 'block';
                     renderKeys(data.keys);
@@ -142,7 +268,7 @@
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
-                        'Authorization': ADMIN_KEY
+                        'Authorization': 'Bearer ' + ADMIN_KEY
                     },
                     body: JSON.stringify({ key: keyToAdd })
                 });
@@ -160,15 +286,15 @@
         });
 
         async function deleteKey(key) {
-            if (!confirm(`Are you sure you want to delete the key ending in ...${key.slice(-4)}?`)) {
-                return;
-            }
+            // if (!confirm(`Are you sure you want to delete the key ending in ...${key.slice(-4)}?`)) {
+            //     return;
+            // }
             try {
                 const response = await fetch('/api/keys', {
                     method: 'DELETE',
                     headers: {
                         'Content-Type': 'application/json',
-                        'Authorization': ADMIN_KEY
+                        'Authorization': 'Bearer ' + ADMIN_KEY
                     },
                     body: JSON.stringify({ key: key })
                 });
@@ -187,10 +313,22 @@
 
         function logout() {
             ADMIN_KEY = '';
+            localStorage.removeItem('admin_key'); // Clear key from storage
             authSection.style.display = 'block';
             managementSection.style.display = 'none';
-            // alert('Authentication failed. Please login again.');
         }
+
+        // Check login status on page load
+        function checkLoginStatus() {
+            const storedKey = localStorage.getItem('admin_key');
+            if (storedKey) {
+                ADMIN_KEY = storedKey;
+                fetchKeys();
+            }
+        }
+
+        // Initialize
+        checkLoginStatus();
 
     </script>
 </body>

@@ -11,16 +11,19 @@ async function fetchWithRetry(url, options) {
   let lastError = null;
 
   while (retries < MAX_RETRIES) {
-    const apiKey = await getRandomKey();
-    if (!apiKey) {
+    const apiKeyObject = await getRandomKey();
+    if (!apiKeyObject) {
       console.error('All API keys are unavailable.');
       throw new Error('All API keys are currently unavailable.');
     }
+    const currentKey = apiKeyObject.key;
 
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), adaptiveTimeout.getTimeout());
 
-    options.headers['Authorization'] = `Bearer ${apiKey}`;
+    // Correctly set header for Google Gemini API and remove incorrect one
+    delete options.headers['Authorization'];
+    options.headers['x-goog-api-key'] = currentKey;
     options.signal = controller.signal;
 
     try {
@@ -33,7 +36,7 @@ async function fetchWithRetry(url, options) {
       }
 
       if (response.status === 429) {
-        console.error('API quota exceeded. Halting retries.');
+        console.error(`API quota exceeded for key ${currentKey}. Halting retries.`);
         throw new Error('API quota exceeded. Halting retries.');
       }
 
@@ -41,21 +44,21 @@ async function fetchWithRetry(url, options) {
       errorData.status = response.status;
       lastError = errorData;
 
-      errorTracker.trackError(errorData, apiKey);
+      errorTracker.trackError(errorData, currentKey);
 
       const delay = calculateRetryDelay(errorData, retries);
       if (delay > 0) {
         await new Promise(resolve => setTimeout(resolve, delay));
       }
-      retries++; // Increment retries for failed attempts as well
+      retries++;
 
     } catch (error) {
       clearTimeout(timeoutId);
       lastError = error;
-      errorTracker.trackError(error, apiKey);
+      errorTracker.trackError(error, currentKey);
 
       if (error.name === 'AbortError') {
-        console.error(`Request timed out with key ${apiKey}. Increasing timeout.`);
+        console.error(`Request timed out with key ${currentKey}. Increasing timeout.`);
         adaptiveTimeout.increaseTimeout();
       }
 
@@ -109,41 +112,51 @@ function getResponse(body, stream) {
   });
 }
 
+function convertToGeminiRequest(openaiRequest) {
+  const { model, messages, stream } = openaiRequest;
+
+  // For simplicity, we'll take the content from the last user message as the prompt.
+  // A more robust solution would handle multi-turn conversations.
+  const lastUserMessage = messages.filter(m => m.role === 'user').pop();
+  const prompt = lastUserMessage ? lastUserMessage.content : '';
+
+  return {
+    contents: [
+      {
+        parts: [{ text: prompt }],
+      },
+    ],
+    // Note: Gemini API has different parameters for streaming, safety settings, etc.
+    // This is a simplified conversion.
+  };
+}
+
 export async function OpenAI(request) {
-  const { model, messages, stream } = request;
-  const url = 'https://api.openai.com/v1/chat/completions';
+  const geminiRequest = convertToGeminiRequest(request);
+
+  // We need to adjust the URL based on the model and whether we are streaming.
+  // Using a simplified, non-streaming model endpoint for now.
+  const model = "gemini-pro"; // Or derive from request if needed
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
+
   const options = {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
+      // The API key is now added in fetchWithRetry, so we don't set it here.
     },
-    body: JSON.stringify({
-      model,
-      messages,
-      stream,
-    }),
+    body: JSON.stringify(geminiRequest),
   };
 
   try {
     const response = await fetchWithRetry(url, options);
 
-    if (!stream) {
-      return response.json();
-    } else {
-      return getResponse(response, true);
-    }
+    // The response from Gemini is different from OpenAI, so we need to transform it back.
+    // This is a placeholder for the transformation logic. For now, we return the raw response.
+    return response.json();
+
   } catch (error) {
-    console.error('OpenAI API request failed definitively:', error);
-    if (stream) {
-        const errorStream = new ReadableStream({
-        start(controller) {
-          const errorData = JSON.stringify({ error: { message: error.message, type: 'internal_error' } });
-          controller.enqueue(new TextEncoder().encode(`data: ${errorData}\\n\\n`));
-          controller.close();
-        }
-      });
-      return new Response(errorStream, { status: 500, headers: { 'Content-Type': 'text/event-stream' } });
-    }
+    console.error('Gemini API request failed definitively:', error);
     return new Response(JSON.stringify({ error: { message: error.message, type: 'internal_error' } }), { status: 500 });
   }
 }

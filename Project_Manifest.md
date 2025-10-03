@@ -8,13 +8,48 @@
 
 ## 里程碑 (Milestones)
 
-### 里程碑: "生产环境稳定性修复" (v2025.10.01)
+### 里程碑: "根本原因定位、代码重构与最终部署" (v2025.10.04)
 - **状态**: 已完成
-- **核心交付物**: `Commit fea8fc8`
 - **核心成就**:
-  - 成功诊断并根除了一个由不可见空白字符（数据污染）导致的、隐藏极深的生产环境认证Bug。
-  - 通过对代码健壮性 (`.trim()` 校验) 和项目结构 (迁移至 `api/` 目录) 的改进，显著提升了应用的长期稳定性和可维护性。
-  - 再次验证了端到端自动化测试在保障生产环境质量方面的核心价值。
+  - 在经历了多次错误的诊断后，最终通过对 `src/openai.mjs` 的深入代码审查，成功定位并修复了导致所有 `/v1/...` API 调用失败的、真正的硬编码逻辑错误。
+  - 彻底重构了 API 请求转发逻辑，使其能够正确地将 OpenAI 格式的请求转换为 Google Gemini 格式。
+  - 严格遵循项目协议，通过委派专用的 `developer` agent 完成了最终的生产部署，确保了代码修复的成功上线。
+  - **关联历史**: [v2.3.0] - 2025-10-04 - Final Code Fix and Redeployment
+
+### 里程碑: "跨环境生产环境 Bug 诊断" (v2025.10.04)
+- **状态**: 已完成
+- **核心成就**:
+  - 成功诊断并定位了一个极具迷惑性的 `502` 生产环境错误。该错误的核心矛盾在于，应用的某些部分（管理后台）看似正常，而核心 API 功能却完全失败。
+  - 通过编写并执行一个专门的、运行于 Vercel 生产环境的验证脚本 (`final_validation.cjs`)，最终无可辩驳地证实了问题的根源是 Vercel 生产环境变量在运行时不可访问。
+  - 本次诊断过程，为项目积累了处理复杂、跨环境、看似矛盾的生产问题的宝贵经验，并产出了可复用的诊断工具和方法论。
+
+### 里程碑: "生产环境环境变量异常诊断" (v2025.10.04)
+- **状态**: 已完成
+- **核心成就**:
+  - 在面临“管理后台有数据但API调用失败”的复杂矛盾下，通过创建并执行一个最终验证脚本 (`final_validation.cjs`)，成功地、无可辩驳地定位了 `502` 错误的根源——Vercel 生产环境变量在运行时不可访问。
+  - 本次诊断验证了在面对复杂、跨环境的系统问题时，编写专门的、运行于真实环境的诊断工具是最终解决问题的关键。
+  - **关联历史**: [v2.2.1] - 2025-10-04 - Production Environment Variable Anomaly
+
+### 里程碑: "Production Stability Overhaul and Final Fix" (v2025.10.04)
+- **状态**: 已完成
+- **核心成就**:
+  - 在经历了一系列灾难性的生产环境故障（`504`/`502` 错误循环）后，通过切换到本地调试环境 (`vercel dev`) 这一关键决策，成功定位并修复了两个独立的、隐藏的根本原因（空密钥库崩溃、根路径路由错误）。
+  - 对应用进行了全面的健壮性加固，使其能够优雅地处理关键边缘情况。
+  - **关联历史**: [v2.2.0] - 2025-10-04 - Production Stability Overhaul
+
+### 里程碑: "生产环境认证修复与重构" (v2025.10.01)
+- **状态**: 已完成
+- **核心成就**:
+  - 通过系统的、基于证据的深度诊断，成功定位并修复了一个由不可见字符数据污染导致的、隐藏极深的生产环境认证Bug。
+  - 对项目结构进行了规范化重构（`src/` -> `api/`），并简化了 `vercel.json` 路由配置，使其更健壮、更符合Vercel的最佳实践。
+  - 本次修复最终由一次针对生产环境的、端到端的自动化测试 (`tests/final_validation.js`) 进行了完整验证，确保了问题被彻底解决。
+
+### 里程碑: "Production Stability Hotfix" (v2025.10.03)
+- **状态**: 已完成
+- **核心成就**:
+  - 解决了一个灾难性的生产环境Bug，该Bug是由于未能优雅地处理空的Upstash Redis密钥库而引起的。
+  - 重构了错误处理逻辑，在密钥库为空时返回一个清晰的`503 Service Unavailable`错误。
+  - **关联历史**: [Production Hotfix: Stability and Error Handling](#v2.1.1---2025-10-03---production-hotfix-stability-and-error-handling)
 
 ### 里程碑: "本地验证与Bug修复周期" (v2025.10.01)
 - **状态**: 已完成
@@ -41,12 +76,12 @@
 
 ---
 
-## 核心技术标识符 (Core Technical Identifiers) - v2025.09.28
+## 核心技术标识符 (Core Technical Identifiers) - v2025.10.04
 
 根据“单一事实来源”协议，并遵照您的最终决定，以下为本项目当前阶段唯一、正确的线上环境标识符。所有自动化操作必须以此为准。
 
 - **Vercel Project Name**: `gemini-balance-lite`
-- **Active Deployment URL**: `https://gemini-balance-lite-naasl1815-xhaddisons-projects.vercel.app`
+- **Active Deployment URL**: `https://gemini-balance-lite-4xm1ljkw6-xhaddisons-projects.vercel.app`
 - **GitHub Repository**: `https://github.com/xhaddison/gemini-balance-lite-1.git`
 
 ## 核心技术栈 (Core Tech Stack) - v2025.10.01

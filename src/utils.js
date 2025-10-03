@@ -24,7 +24,7 @@ export function calculateRetryDelay(error, attempt) {
 }
 
 export class AdaptiveTimeout {
-  constructor(initialTimeout = 180000, maxTimeout = 600000) {
+  constructor(initialTimeout = 8000, maxTimeout = 15000) {
     this.initialTimeout = initialTimeout;
     this.maxTimeout = maxTimeout;
     this.currentTimeout = this.initialTimeout;

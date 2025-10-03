@@ -20,13 +20,13 @@ async function verifyKey(key, controller) {
     });
     if (response.ok) {
       await response.text(); // Consume body to release connection
-      result = { key: `${key.slice(0, 7)}......${key.slice(-7)}`, status: 'GOOD' };
+      result = { key: `${key.slice(0, 7)}......${key.slice(-7)}`, status: 'GOOD', full_key: key };
     } else {
       const errorData = await response.json().catch(() => ({ error: { message: 'Unknown error' } }));
-      result = { key: `${key.slice(0, 7)}......${key.slice(-7)}`, status: 'BAD', error: errorData.error.message };
+      result = { key: `${key.slice(0, 7)}......${key.slice(-7)}`, status: 'BAD', error: errorData.error.message, full_key: key };
     }
   } catch (e) {
-    result = { key: `${key.slice(0, 7)}......${key.slice(-7)}`, status: 'ERROR', error: e.message };
+    result = { key: `${key.slice(0, 7)}......${key.slice(-7)}`, status: 'ERROR', error: e.message, full_key: key };
   }
   controller.enqueue(new TextEncoder().encode('data: ' + JSON.stringify(result) + '\n\n'));
 }

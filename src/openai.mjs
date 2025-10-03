@@ -7,6 +7,8 @@ const errorTracker = new ErrorTracker();
 const MAX_RETRIES = 5;
 
 async function fetchWithRetry(url, options) {
+  console.log(`[${new Date().toISOString()}] --- fetchWithRetry START ---`);
+  console.time(`[${new Date().toISOString()}] fetchWithRetry`);
   let retries = 0;
   let lastError = null;
 
@@ -18,6 +20,16 @@ async function fetchWithRetry(url, options) {
     }
     const currentKey = apiKeyObject.key;
 
+    // --- CRITICAL FIX START ---
+    // Ensure the API key is NOT in the query parameters.
+    const urlObject = new URL(url);
+    if (urlObject.searchParams.has('key')) {
+      console.warn('[fetchWithRetry] Removing API key from query parameter to enforce header-only authentication.');
+      urlObject.searchParams.delete('key');
+    }
+    const finalUrl = urlObject.toString();
+    // --- CRITICAL FIX END ---
+
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), adaptiveTimeout.getTimeout());
 
@@ -27,11 +39,25 @@ async function fetchWithRetry(url, options) {
     options.signal = controller.signal;
 
     try {
-      const response = await fetch(url, options);
+      console.log(`[${new Date().toISOString()}] [fetchWithRetry] Attempt #${retries + 1} to fetch URL: ${finalUrl}`);
+      console.log(`[${new Date().toISOString()}] [fetchWithRetry] Using API Key starting with: ${currentKey.substring(0, 8)}...`);
+      console.log(`[${new Date().toISOString()}] [fetchWithRetry] About to call fetch.`);
+      const response = await fetch(finalUrl, options);
+      console.log(`[${new Date().toISOString()}] [fetchWithRetry] fetch completed with status: ${response.status}`);
       clearTimeout(timeoutId);
+
+      // --- CRITICAL FIX: Abort on any 4xx client error ---
+      if (response.status >= 400 && response.status < 500) {
+        const errorBody = await response.json().catch(() => ({ message: `Client error with status ${response.status}` }));
+        console.error(`[fetchWithRetry] Client error (${response.status}) received. Halting retries.`, errorBody);
+        throw new Error(JSON.stringify(errorBody)); // Throw to exit the retry loop immediately.
+      }
+      // --- END CRITICAL FIX ---
 
       if (response.ok) {
         adaptiveTimeout.decreaseTimeout();
+        console.timeEnd(`[${new Date().toISOString()}] fetchWithRetry`);
+        console.log(`[${new Date().toISOString()}] --- fetchWithRetry END (Success) ---`);
         return response;
       }
 
@@ -69,6 +95,8 @@ async function fetchWithRetry(url, options) {
   }
 
   console.error(`Request failed after ${MAX_RETRIES} retries. Last error:`, lastError);
+  console.timeEnd(`[${new Date().toISOString()}] fetchWithRetry`);
+  console.log(`[${new Date().toISOString()}] --- fetchWithRetry END (Failure) ---`);
   throw new Error(`Request failed after ${MAX_RETRIES} retries. Last error: ${lastError.message || lastError}`);
 }
 
@@ -131,39 +159,54 @@ function convertToGeminiRequest(openaiRequest) {
   };
 }
 
-export async function OpenAI(request) {
-  try {
-    // CRITICAL FIX: The request body must be parsed from the incoming request.
-    const requestBody = await request.json();
-    const { messages } = requestBody;
+const modelMap = new Map([
+  ['gemini-1.5-pro-latest', 'gemini-1.5-pro'],
+  ['gemini-2.5-pro', 'gemini-1.5-pro'],
+  ['gemini-1.5-flash', 'gemini-1.5-flash'],
+]);
 
-    // Ensure messages is an array before proceeding
+export async function OpenAI(request) {
+  console.log(`[${new Date().toISOString()}] --- OpenAI START ---`);
+  try {
+    const requestBody = await request.json();
+    const { messages, model: requestedModel } = requestBody;
+
     if (!Array.isArray(messages)) {
-        throw new Error("Invalid request body: 'messages' must be an array.");
+      console.error("[OpenAI] Invalid request body: 'messages' is not an array.", requestBody);
+      throw new Error("Invalid request body: 'messages' must be an array.");
     }
 
-    // Pass the entire request body to the conversion function
     const geminiRequest = convertToGeminiRequest(requestBody);
 
-    const model = "gemini-pro";
+    // Dynamic model mapping and fallback logic
+    let model;
+    if (requestedModel && modelMap.has(requestedModel)) {
+      model = modelMap.get(requestedModel);
+    } else {
+      model = 'gemini-1.5-flash'; // Fallback to a default
+      if (requestedModel) {
+        console.warn(`[OpenAI] Model mapping not found for requested model: '${requestedModel}'. Falling back to '${model}'.`);
+      }
+    }
+
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
 
-    const options = {
+    console.log(`[${new Date().toISOString()}] [OpenAI] Forwarding request to model: ${model}, URL: ${url}`);
+    console.log(`[${new Date().toISOString()}] [OpenAI] About to call fetchWithRetry.`);
+    const response = await fetchWithRetry(url, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(geminiRequest),
-    };
+    });
+    console.log(`[${new Date().toISOString()}] [OpenAI] fetchWithRetry completed.`);
 
-    const response = await fetchWithRetry(url, options);
-
-    // Assuming the client expects an OpenAI-like JSON response.
-    // A more complete solution would transform the Gemini response back to OpenAI format.
     return response.json();
 
   } catch (error) {
-    console.error('Gemini API request failed definitively:', error);
-    return new Response(JSON.stringify({ error: { message: error.message, type: 'internal_error' } }), { status: 500 });
+    console.error(`[OpenAI] Critical error in main function: ${error.message}`, {
+      error,
+      requestHeaders: request.headers,
+    });
+    return new Response(JSON.stringify({ error: { message: `Internal Server Error: ${error.message}`, type: 'internal_error' } }), { status: 500 });
   }
 }

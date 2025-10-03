@@ -96,7 +96,8 @@ async function handleBulkUploadRequest(request) {
 
 
 export async function handleRequest(request, ctx) {
-  console.log('Received headers:', JSON.stringify(Object.fromEntries(request.headers.entries())));
+  console.log(`[${new Date().toISOString()}] --- handleRequest START ---`);
+  console.log(`[${new Date().toISOString()}] Received headers:`, JSON.stringify(Object.fromEntries(request.headers.entries())));
   const url = new URL(request.url);
 
   // --- START: Main Router ---
@@ -109,7 +110,21 @@ export async function handleRequest(request, ctx) {
   }
 
   if (url.pathname.startsWith('/v1/')) {
-    return OpenAI(request);
+    try {
+      console.log(`[${new Date().toISOString()}] Routing to OpenAI module for path: ${url.pathname}`);
+      const response = await OpenAI(request);
+      console.log(`[${new Date().toISOString()}] OpenAI module finished processing for path: ${url.pathname}`);
+      return response;
+    } catch (error) {
+      console.error(`[handleRequest] Unhandled exception from OpenAI module: ${error.message}`, {
+        error,
+        pathname: url.pathname,
+      });
+      return jsonResponse({
+        success: false,
+        message: 'An unexpected error occurred while processing the request in the OpenAI module.'
+      }, 500);
+    }
   }
   // --- END: Main Router ---
 

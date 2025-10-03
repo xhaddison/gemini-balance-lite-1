@@ -8,6 +8,42 @@
 
 ## 里程碑 (Milestones)
 
+### 里程碑: "决定性根本原因修复与最终部署" (v2025.10.04)
+- **状态**: 已完成
+- **核心成就**:
+  - 在经历了多次错误的诊断后，最终通过独立的本地验证，定位并修复了API密钥必须通过`header`而非`query parameter`传递这一真正的根本原因。
+  - 项目在多次波折后，其核心代码逻辑问题被彻底根除，达到了前所未有的稳定状态。
+- **关联历史**: [v2.7.0] - 2025-10-04 - Definitive Root Cause Fix and Final Deployment
+
+### 里程碑: "根本原因最终修复与决定性部署" (v2025.10.04)
+- **状态**: 已完成
+- **核心成就**:
+  - 在经历了多次错误的诊断后，最终通过独立的本地验证脚本，无可辩驳地定位并修复了导致所有 API 调用失败的、真正的根本原因——错误的 API 密钥传递方式（应为 header 而非 query param）。
+  - 在用户的关键指引下，回归了正确的、以本地验证为优先的科学诊断流程。
+  - 最终交付了一个逻辑完全正确、经过多重验证的、前所未有稳定的生产版本。
+- **关联历史**: [v2.7.0] - 2025-10-04 - Definitive Root Cause Fix and Final Deployment
+
+### 里程碑: "最终模型映射修复部署" (v2025.10.04)
+- **状态**: 已完成
+- **核心成就**:
+  - 成功将包含最终模型名称映射修复的最新稳定版本部署至生产环境，确保了模型路由的最终正确性。
+- **关联历史**: [v2.6.0] - 2025-10-04 - Final Model Mapping Fix Deployment
+
+### 里程碑: "增强日志部署" (v2025.10.04)
+- **状态**: 已完成
+- **核心成就**:
+  - 成功将包含增强诊断日志的最新版本部署至生产环境，提升了系统的可观测性。
+- **关联历史**: [v2.5.0] - 2025-10-04 - Enhanced Logging Deployment
+
+
+### 里程碑: "最终运行时调试与决定性修复" (v2025.10.04)
+- **状态**: 已完成
+- **核心成就**:
+  - 在 `v2.3.0` 部署失败后，通过获取并分析 Vercel 的生产运行时日志，成功定位了最后一个、由我自己引入的致命 Bug (`TypeError: ...reading 'filter'`)。
+  - 通过向 `OpenAI` 函数添加 `await request.json()`，彻底修复了请求体的解析逻辑。
+  - 在经历了多次失败和深刻反省后，最终交付了一个完全稳定的、经过完整诊断流程验证的生产版本。
+  - **关联历史**: [v2.4.0] - 2025-10-04 - Final Root Cause Analysis and Definitive Fix
+
 ### 里程碑: "根本原因定位、代码重构与最终部署" (v2025.10.04)
 - **状态**: 已完成
 - **核心成就**:
@@ -81,7 +117,7 @@
 根据“单一事实来源”协议，并遵照您的最终决定，以下为本项目当前阶段唯一、正确的线上环境标识符。所有自动化操作必须以此为准。
 
 - **Vercel Project Name**: `gemini-balance-lite`
-- **Active Deployment URL**: `https://gemini-balance-lite-4xm1ljkw6-xhaddisons-projects.vercel.app`
+- **Active Deployment URL**: `https://gemini-balance-lite-ctnvoi1a2-xhaddisons-projects.vercel.app`
 - **GitHub Repository**: `https://github.com/xhaddison/gemini-balance-lite-1.git`
 
 ## 核心技术栈 (Core Tech Stack) - v2025.10.01

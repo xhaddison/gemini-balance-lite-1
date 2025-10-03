@@ -167,10 +167,10 @@ function convertToGeminiRequest(openaiRequest) {
 }
 
 const modelMap = new Map([
-  ['gemini-1.5-pro-latest', 'gemini-1.5-pro-latest'],
-  ['gemini-2.5-pro', 'gemini-1.5-pro-latest'], // Assuming 2.5 is a client-side alias for 1.5 pro
+  ['gemini-1.5-pro-latest', 'gemini-pro-latest'],
+  ['gemini-2.5-pro', 'gemini-pro-latest'],
   ['gemini-1.5-flash', 'gemini-1.5-flash-latest'],
-  ['gemini-pro', 'gemini-pro-latest'], // Corrected to a likely valid model
+  ['gemini-pro', 'gemini-pro-latest'],
 ]);
 
 export async function OpenAI(request) {

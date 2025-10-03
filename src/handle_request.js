@@ -109,7 +109,7 @@ export async function handleRequest(request, ctx) {
     return handleAdminRequest(request);
   }
 
-  if (url.pathname.startsWith('/v1/')) {
+  if (url.pathname === '/api/query' || url.pathname.startsWith('/v1/')) {
     try {
       console.log(`[${new Date().toISOString()}] Routing to OpenAI module for path: ${url.pathname}`);
       const response = await OpenAI(request);

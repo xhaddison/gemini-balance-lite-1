@@ -160,8 +160,8 @@ function convertToGeminiRequest(openaiRequest) {
 }
 
 const modelMap = new Map([
-  ['gemini-1.5-pro-latest', 'gemini-1.5-pro'],
-  ['gemini-2.5-pro', 'gemini-1.5-pro'],
+  ['gemini-1.5-pro-latest', 'gemini-pro'],
+  ['gemini-2.5-pro', 'gemini-pro'],
   ['gemini-1.5-flash', 'gemini-1.5-flash'],
   ['gemini-pro', 'gemini-pro'],
 ]);
@@ -184,7 +184,7 @@ export async function OpenAI(request) {
     if (requestedModel && modelMap.has(requestedModel)) {
       model = modelMap.get(requestedModel);
     } else {
-      model = 'gemini-1.5-pro'; // Fallback to a default
+      model = 'gemini-pro'; // Fallback to a valid default model
       if (requestedModel) {
         console.warn(`[OpenAI] Model mapping not found for requested model: '${requestedModel}'. Falling back to '${model}'.`);
       }

@@ -169,7 +169,7 @@ export async function OpenAI(request) {
   console.log(`[${new Date().toISOString()}] --- OpenAI START ---`);
   try {
     const requestBody = await request.json();
-    const { messages, model: requestedModel } = requestBody;
+    const { messages, model: requestedModel, stream } = requestBody;
 
     if (!Array.isArray(messages)) {
       console.error("[OpenAI] Invalid request body: 'messages' is not an array.", requestBody);
@@ -189,7 +189,7 @@ export async function OpenAI(request) {
       }
     }
 
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:${stream ? 'streamGenerateContent' : 'generateContent'}`;
 
     console.log(`[${new Date().toISOString()}] [OpenAI] Forwarding request to model: ${model}, URL: ${url}`);
     console.log(`[${new Date().toISOString()}] [OpenAI] About to call fetchWithRetry.`);
@@ -200,7 +200,7 @@ export async function OpenAI(request) {
     });
     console.log(`[${new Date().toISOString()}] [OpenAI] fetchWithRetry completed.`);
 
-    return response.json();
+    return getResponse(response, stream);
 
   } catch (error) {
     console.error(`[OpenAI] Critical error in main function: ${error.message}`, {

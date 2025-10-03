@@ -167,11 +167,9 @@ function convertToGeminiRequest(openaiRequest) {
 }
 
 const modelMap = new Map([
-    // Mapping from OpenAI model names to Google Gemini model names
-    ['gemini-pro-latest', 'gemini-pro-latest'],
+    // DEFINITIVE MAPPING based on authoritative ListModels API call
     ['gemini-pro', 'gemini-pro-latest'],
     ['gemini-1.5-flash', 'gemini-flash-latest'],
-    // --- DEFINITIVE FIX v2: Map models to themselves based on user's client ---
     ['gemini-2.5-pro', 'gemini-2.5-pro'],
     ['gemini-2.5-flash', 'gemini-2.5-flash'],
 ]);

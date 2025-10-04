@@ -130,11 +130,25 @@ function createSSETransformer() {
   });
 }
 
-function getResponse(body, stream) {
+async function getResponse(body, stream) {
+  console.log('[getResponse] START');
   if (!stream || !body.body) {
-    return body;
+    console.log('[getResponse] Non-streaming path initiated.');
+    // For non-streaming, we must consume the body to prevent hanging connections.
+    console.log('[getResponse] About to consume body.json().');
+    const json = await body.json();
+    console.log('[getResponse] Successfully consumed body.json().');
+    const responseBody = JSON.stringify(json);
+    console.log('[getResponse] About to create new Response object.');
+    const response = new Response(responseBody, {
+      headers: { 'Content-Type': 'application/json' }
+    });
+    console.log('[getResponse] New Response object created. Returning.');
+    return response;
   }
+  console.log('[getResponse] Streaming path initiated.');
   const sseTransformer = createSSETransformer();
+  console.log('[getResponse] SSE Transformer created. About to pipe and return.');
   return new Response(body.body.pipeThrough(sseTransformer), {
     headers: { 'Content-Type': 'text/event-stream' }
   });

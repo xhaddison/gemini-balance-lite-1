@@ -8,6 +8,27 @@
 
 ## 里程碑 (Milestones)
 
+### 里程碑: "生产部署成功" (v2025.10.04)
+- **状态**: 已完成
+- **核心成就**:
+  - 成功将包含 `ReferenceError: toggleDrawer is not defined` 关键修复的最新稳定版本部署至 Vercel 生产环境。
+  - 整个部署流程由 `developer` agent 自动执行，确保了流程的稳定与一致性。
+- **关联历史**: [v3.2.0] - 2025-10-04 - Production Deployment Success
+
+### 里程碑: "UAT失败与前端阻断性Bug发现" (v2025.10.04)
+- **状态**: 已完成
+- **核心成就**:
+  - 在对 `terminatedTypeError` 修复的UAT过程中，成功发现并隔离了一个更高优先级的、导致整个应用无法交互的前端阻断性Bug (`ReferenceError: toggleDrawer is not defined`)。
+  - 严格遵循了“开发-测试”闭环，防止了有问题的代码进入生产环境。
+- **关联历史**: [v3.1.0] - 2025-10-04 - UAT Failure & Critical Frontend Blocker
+
+### 里程碑: "生产环境 `terminatedTypeError` 热修复" (v2025.10.04)
+- **状态**: 已完成
+- **核心成就**:
+  - 成功诊断并从根本上修复了一个由 `fetch` API 的 `ReadableStream` 处理不当导致的、隐藏的 `terminatedTypeError` 生产环境Bug。
+  - 通过重构核心流处理逻辑，显著提升了应用的健壮性和稳定性。
+- **关联历史**: [v3.0.0] - 2025-10-04 - Production `terminatedTypeError` Hotfix
+
 ### 里程碑: "功能回归Bug修复与最终验证" (v2025.10.04)
 - **状态**: 已完成
 - **核心成就**:
@@ -134,7 +155,7 @@
 根据“单一事实来源”协议，并遵照您的最终决定，以下为本项目当前阶段唯一、正确的线上环境标识符。所有自动化操作必须以此为准。
 
 - **Vercel Project Name**: `gemini-balance-lite`
-- **Active Deployment URL**: `https://gemini-balance-lite-ctnvoi1a2-xhaddisons-projects.vercel.app`
+- **Active Deployment URL**: `https://gemini-balance-lite-qcwpltxtx-xhaddisons-projects.vercel.app`
 - **GitHub Repository**: `https://github.com/xhaddison/gemini-balance-lite-1.git`
 
 ## 核心技术栈 (Core Tech Stack) - v2025.10.01

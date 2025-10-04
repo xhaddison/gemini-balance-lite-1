@@ -2,10 +2,9 @@
 
 **最后更新**: 2025-10-04T23:30:00Z
 
-**当前状态**: STABLE / FUNCTIONALLY_VERIFIED
-
-**生产环境URL**: https://gemini-balance-lite-hplp043np-xhaddisons-projects.vercel.app
+**当前状态**: BLOCKED / CONFIG_ERROR
 
 **详情**:
-- **摘要**: 生产环境的核心 API 功能已通过端到端的 `curl` 调用 (`/v1/chat/completions`) 验证，返回 `HTTP/2 200 OK`。所有已知的模型映射回归 Bug 均已彻底解决。项目功能完全可用。
-- **历史部署URL**: https://gemini-balance-lite.vercel.app
+- **摘要**: **严重** - 生产环境因缺失 `UPSTASH_REDIS_REST_URL` 和 `UPSTASH_REDIS_REST_TOKEN` 环境变量而完全瘫痪。项目当前被此配置错误阻塞。
+- **关联UAT报告**: `docs/UAT_Report_ReferenceError_Fix_Verified_20251004.md`
+- **生产环境 URL**: https://gemini-balance-lite-qcwpltxtx-xhaddisons-projects.vercel.app

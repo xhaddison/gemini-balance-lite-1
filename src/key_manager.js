@@ -9,10 +9,15 @@ function getRedisClient() {
     if (!process.env.UPSTASH_REDIS_REST_URL || !process.env.UPSTASH_REDIS_REST_TOKEN) {
       throw new Error('Upstash Redis credentials are not configured in environment variables.');
     }
-    redis = new Redis({
-      url: process.env.UPSTASH_REDIS_REST_URL.trim(),
-      token: process.env.UPSTASH_REDIS_REST_TOKEN.trim(),
-    });
+    try {
+      redis = new Redis({
+        url: process.env.UPSTASH_REDIS_REST_URL.trim(),
+        token: process.env.UPSTASH_REDIS_REST_TOKEN.trim(),
+      });
+    } catch (error) {
+      console.error('[CRITICAL] Redis client instantiation failed:', error);
+      throw error; // Re-throw the error after logging
+    }
   }
   return redis;
 }

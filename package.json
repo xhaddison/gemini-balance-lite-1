@@ -17,7 +17,6 @@
     "formidable": "^3.5.4",
     "ioredis": "^5.8.0",
     "iron-session": "^8.0.4",
-    "node-fetch": "^3.3.2",
     "playwright": "^1.55.1",
     "playwright-extra": "^4.3.6",
     "puppeteer": "^24.22.3",

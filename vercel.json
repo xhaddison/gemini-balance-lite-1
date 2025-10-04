@@ -1,11 +1,9 @@
 {
-  "functions": {
-    "api/index.js": {
-      "maxDuration": 300
-    }
-  },
   "installCommand": "npm install",
   "rewrites": [
-    { "source": "/(.*)", "destination": "/api/index.js" }
+    {
+      "source": "/api/v1/(.*)",
+      "destination": "/api/v1/chat/completions.js"
+    }
   ]
 }

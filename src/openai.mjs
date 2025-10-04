@@ -177,7 +177,24 @@ const modelMap = new Map([
     ['gemini-1.5-flash', 'gemini-2.5-flash'],
 ]);
 
+import { getAllKeys } from './key_manager.js';
+
 export async function OpenAI(request) {
+  const url = new URL(request.url);
+  if (url.pathname === '/v1/diag') {
+    try {
+      const allKeys = await getAllKeys();
+      return new Response(JSON.stringify({ keys: allKeys }), {
+        headers: { 'Content-Type': 'application/json' },
+      });
+    } catch (error) {
+      return new Response(JSON.stringify({ error: error.message }), {
+        status: 500,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+  }
+
   console.log(`[${new Date().toISOString()}] --- OpenAI START ---`);
   try {
     const requestBody = await request.json();

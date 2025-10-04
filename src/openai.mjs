@@ -1,5 +1,5 @@
 import { AdaptiveTimeout, ErrorTracker, calculateRetryDelay } from './utils.js';
-import { getRandomKey } from './key_manager.js';
+import { getRandomKey, getAllKeys } from './key_manager.js';
 
 const adaptiveTimeout = new AdaptiveTimeout();
 const errorTracker = new ErrorTracker();
@@ -179,6 +179,39 @@ const modelMap = new Map([
 
 
 export async function OpenAI(request) {
+  const url = new URL(request.url);
+  if (url.pathname === '/v1/env_check') {
+    try {
+      const diagnostics = {
+        env: {
+          UPSTASH_REDIS_REST_URL_EXISTS: !!process.env.UPSTASH_REDIS_REST_URL,
+          UPSTASH_REDIS_REST_TOKEN_EXISTS: !!process.env.UPSTASH_REDIS_REST_TOKEN,
+        },
+        redis: {
+          connection_status: 'pending',
+          key_count: -1,
+        },
+      };
+      try {
+        const allKeys = await getAllKeys();
+        diagnostics.redis.connection_status = 'success';
+        diagnostics.redis.key_count = allKeys.length;
+      } catch (redisError) {
+        diagnostics.redis.connection_status = 'failure';
+        diagnostics.redis.error = redisError.message;
+      }
+      return new Response(JSON.stringify(diagnostics), {
+        headers: { 'Content-Type': 'application/json' },
+      });
+    } catch (error) {
+      return new Response(JSON.stringify({ error: error.message }), {
+        status: 500,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+  }
+
+
   console.log(`[${new Date().toISOString()}] --- OpenAI START ---`);
   try {
     const requestBody = await request.json();

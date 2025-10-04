@@ -180,27 +180,16 @@ const modelMap = new Map([
 
 export async function OpenAI(request) {
   const url = new URL(request.url);
+
   if (url.pathname === '/v1/env_check') {
     try {
-      const diagnostics = {
-        env: {
-          UPSTASH_REDIS_REST_URL_EXISTS: !!process.env.UPSTASH_REDIS_REST_URL,
-          UPSTASH_REDIS_REST_TOKEN_EXISTS: !!process.env.UPSTASH_REDIS_REST_TOKEN,
-        },
-        redis: {
-          connection_status: 'pending',
-          key_count: -1,
-        },
+      const env_vars = {
+        UPSTASH_REDIS_REST_URL_present: !!process.env.UPSTASH_REDIS_REST_URL,
+        UPSTASH_REDIS_REST_TOKEN_present: !!process.env.UPSTASH_REDIS_REST_TOKEN,
+        URL_length: process.env.UPSTASH_REDIS_REST_URL ? process.env.UPSTASH_REDIS_REST_URL.length : 0,
+        TOKEN_length: process.env.UPSTASH_REDIS_REST_TOKEN ? process.env.UPSTASH_REDIS_REST_TOKEN.length : 0,
       };
-      try {
-        const allKeys = await getAllKeys();
-        diagnostics.redis.connection_status = 'success';
-        diagnostics.redis.key_count = allKeys.length;
-      } catch (redisError) {
-        diagnostics.redis.connection_status = 'failure';
-        diagnostics.redis.error = redisError.message;
-      }
-      return new Response(JSON.stringify(diagnostics), {
+      return new Response(JSON.stringify(env_vars), {
         headers: { 'Content-Type': 'application/json' },
       });
     } catch (error) {
@@ -210,6 +199,7 @@ export async function OpenAI(request) {
       });
     }
   }
+
 
 
   console.log(`[${new Date().toISOString()}] --- OpenAI START ---`);

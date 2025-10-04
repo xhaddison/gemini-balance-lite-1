@@ -136,9 +136,20 @@ export async function handleRequest(request, ctx) {
   }
 
   let attempts = 0;
-  const requestBody = await request.json();
 
   while (attempts < MAX_RETRIES) {
+    // Moved request.json() inside the loop to avoid parsing body for all requests.
+    const requestBody = await request.json().catch(err => {
+        console.error("Failed to parse request body as JSON.", err);
+        return null; // Return null if parsing fails
+    });
+
+    if (requestBody === null) {
+      return jsonResponse({
+        success: false,
+        message: 'Invalid JSON request body.'
+      }, 400);
+    }
     const apiKeyObject = await getRandomKey();
 
     if (!apiKeyObject) {
@@ -174,7 +185,18 @@ export async function handleRequest(request, ctx) {
         adaptiveTimeout.decreaseTimeout();
         const responseHeaders = new Headers(response.headers);
         responseHeaders.set('Referrer-Policy', 'no-referrer');
-        return new Response(response.body, {
+
+        const contentType = response.headers.get('content-type') || '';
+        let body;
+        if (contentType.includes('application/json')) {
+            body = JSON.stringify(await response.json());
+        } else if (contentType.includes('text/')) {
+            body = await response.text();
+        } else {
+            body = await response.arrayBuffer();
+        }
+
+        return new Response(body, {
             status: response.status,
             headers: responseHeaders
         });

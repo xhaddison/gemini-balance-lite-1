@@ -47,6 +47,12 @@ async function fetchWithRetry(url, options, apiKey) {
         if (response.status >= 400 && response.status < 500) {
           const errorBody = await response.json().catch(() => ({ message: `Client error with status ${response.status}` }));
           console.error(`[fetchWithRetry] Client error (${response.status}) received. Halting retries.`, errorBody);
+          // For quota issues with a user-provided key, we throw a specific, catchable error.
+          if (response.status === 429) {
+              const specificError = new Error(JSON.stringify(errorBody));
+              specificError.name = 'QuotaExceededError';
+              throw specificError;
+          }
           throw new Error(JSON.stringify(errorBody)); // Throw to exit the retry loop immediately.
         }
         // --- END CRITICAL FIX ---
@@ -54,12 +60,17 @@ async function fetchWithRetry(url, options, apiKey) {
         if (response.ok) {
           adaptiveTimeout.decreaseTimeout();
           console.log(`[${new Date().toISOString()}] --- fetchWithRetry END (Success) ---`);
+
+          // CRITICAL FIX: Instead of creating a new Response, return the original response
+          // to let the caller handle the stream lifecycle.
           return response;
         }
 
         if (response.status === 429) {
           console.error(`API quota exceeded for key ${currentKey}. Halting retries.`);
-          throw new Error('API quota exceeded. Halting retries.');
+          const specificError = new Error('API quota exceeded. Halting retries.');
+          specificError.name = 'QuotaExceededError';
+          throw specificError;
         }
 
         const errorData = await response.json().catch(() => ({ status: response.status, message: response.statusText }));
@@ -78,6 +89,11 @@ async function fetchWithRetry(url, options, apiKey) {
         clearTimeout(timeoutId);
         lastError = error;
         errorTracker.trackError(error, currentKey);
+
+        // If it's a quota error, we must not retry. Re-throw to be caught by the main handler.
+        if (error.name === 'QuotaExceededError') {
+            throw error;
+        }
 
         if (error.name === 'AbortError') {
           console.error(`Request timed out with key ${currentKey}. Increasing timeout.`);
@@ -128,29 +144,6 @@ function createSSETransformer() {
   });
 }
 
-async function getResponse(body, stream) {
-  console.log('[getResponse] START');
-  if (!stream || !body.body) {
-    console.log('[getResponse] Non-streaming path initiated.');
-    // For non-streaming, we must consume the body to prevent hanging connections.
-    console.log('[getResponse] About to consume body.json().');
-    const json = await body.json();
-    console.log('[getResponse] Successfully consumed body.json().');
-    const responseBody = JSON.stringify(json);
-    console.log('[getResponse] About to create new Response object.');
-    const response = new Response(responseBody, {
-      headers: { 'Content-Type': 'application/json' }
-    });
-    console.log('[getResponse] New Response object created. Returning.');
-    return response;
-  }
-  console.log('[getResponse] Streaming path initiated.');
-  const sseTransformer = createSSETransformer();
-  console.log('[getResponse] SSE Transformer created. About to pipe and return.');
-  return new Response(body.body.pipeThrough(sseTransformer), {
-    headers: { 'Content-Type': 'text/event-stream' }
-  });
-}
 
 function convertToGeminiRequest(openaiRequest) {
   const { model, messages, stream } = openaiRequest;
@@ -239,7 +232,33 @@ export async function OpenAI(request) {
     }, clientKey); // Pass the validated client key
     console.log(`[${new Date().toISOString()}] [OpenAI] fetchWithRetry completed.`);
 
-    return getResponse(response, stream);
+    // --- RESPONSE HANDLING ---
+    console.log(`[${new Date().toISOString()}] [OpenAI] Response received. Handling stream: ${stream}`);
+    if (stream) {
+        // For streaming responses, we need to decouple the streams.
+        // We pipe the original response body through a new TransformStream.
+        // This creates a new stream that is fully controlled by our application,
+        // preventing the 'terminatedTypeError' that occurs when the original
+        // fetch connection is closed prematurely by the environment.
+        const transformStream = new TransformStream();
+        response.body.pipeTo(transformStream.writable);
+
+        return new Response(transformStream.readable, {
+            status: response.status,
+            headers: response.headers
+        });
+    } else {
+        // For non-streaming, we can safely buffer the entire response.
+        const responseBody = await response.json();
+        return new Response(JSON.stringify(responseBody), {
+            status: response.status,
+            headers: {
+                ...response.headers,
+                'Content-Type': 'application/json'
+            }
+        });
+    }
+    // --- END RESPONSE HANDLING ---
 
   } catch (error) {
      // --- AUTHORIZATION: Specific error handling for quota ---

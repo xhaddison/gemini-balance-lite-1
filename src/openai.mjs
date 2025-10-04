@@ -224,8 +224,8 @@ export async function OpenAI(request) {
     const { messages, model: requestedModel, stream } = requestBody;
 
     if (!Array.isArray(messages)) {
-      console.error(\"[OpenAI] Invalid request body: 'messages' is not an array.\", requestBody);
-      throw new Error(\"Invalid request body: 'messages' must be an array.\");
+      console.error("[OpenAI] Invalid request body: 'messages' is not an array.", requestBody);
+      throw new Error("Invalid request body: 'messages' must be an array.");
     }
 
     const geminiRequest = convertToGeminiRequest(requestBody);

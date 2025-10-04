@@ -1,5 +1,5 @@
 import { AdaptiveTimeout, ErrorTracker, calculateRetryDelay } from './utils.js';
-import { getRandomKey, getAllKeys } from './key_manager.js';
+import { getRandomKey } from './key_manager.js';
 
 const adaptiveTimeout = new AdaptiveTimeout();
 const errorTracker = new ErrorTracker();
@@ -179,8 +179,6 @@ const modelMap = new Map([
 
 
 export async function OpenAI(request) {
-  const url = new URL(request.url);
-
   console.log(`[${new Date().toISOString()}] --- OpenAI START ---`);
   try {
     const requestBody = await request.json();

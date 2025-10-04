@@ -1,12 +1,12 @@
 import { AdaptiveTimeout, ErrorTracker, calculateRetryDelay } from './utils.js';
-import { getRandomKey, getAllKeys } from './key_manager.js';
+import { getRandomKey, getAllKeys, validateKey } from './key_manager.js';
 
 const adaptiveTimeout = new AdaptiveTimeout();
 const errorTracker = new ErrorTracker();
 
 const MAX_RETRIES = 5;
 
-async function fetchWithRetry(url, options) {
+async function fetchWithRetry(url, options, apiKey) {
   const timerLabel = `[${new Date().toISOString()}] fetchWithRetry`;
   console.log(`[${new Date().toISOString()}] --- fetchWithRetry START ---`);
   console.time(timerLabel);
@@ -15,12 +15,7 @@ async function fetchWithRetry(url, options) {
 
   try {
     while (retries < MAX_RETRIES) {
-      const apiKeyObject = await getRandomKey();
-      if (!apiKeyObject) {
-        console.error('All API keys are unavailable.');
-        throw new Error('All API keys are currently unavailable.');
-      }
-      const currentKey = apiKeyObject.key;
+      const currentKey = apiKey;
 
       // --- CRITICAL FIX START ---
       // Ensure the API key is NOT in the query parameters.
@@ -199,6 +194,19 @@ export async function OpenAI(request) {
 
   console.log(`[${new Date().toISOString()}] --- OpenAI START ---`);
   try {
+    // --- AUTHORIZATION FIX START ---
+    const authHeader = request.headers.get('Authorization');
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+        return new Response(JSON.stringify({ error: { message: 'Authorization header is missing or invalid.', type: 'authentication_error' } }), { status: 401 });
+    }
+    const clientKey = authHeader.substring(7);
+
+    const isKeyValid = await validateKey(clientKey);
+    if (!isKeyValid) {
+        return new Response(JSON.stringify({ error: { message: 'Invalid API Key.', type: 'authentication_error' } }), { status: 401 });
+    }
+    // --- AUTHORIZATION FIX END ---
+
     const requestBody = await request.json();
     const { messages, model: requestedModel, stream } = requestBody;
 
@@ -228,12 +236,17 @@ export async function OpenAI(request) {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(geminiRequest),
-    });
+    }, clientKey); // Pass the validated client key
     console.log(`[${new Date().toISOString()}] [OpenAI] fetchWithRetry completed.`);
 
     return getResponse(response, stream);
 
   } catch (error) {
+     // --- AUTHORIZATION: Specific error handling for quota ---
+     if (error.name === 'QuotaExceededError') {
+        return new Response(JSON.stringify({ error: { message: 'API quota exceeded for the provided key.', type: 'insufficient_quota' } }), { status: 429 });
+    }
+    // --- END AUTHORIZATION ---
     console.error(`[OpenAI] Critical error in main function: ${error.message}`, {
       error,
       requestHeaders: request.headers,

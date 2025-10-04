@@ -179,6 +179,8 @@ const modelMap = new Map([
 
 import { getAllKeys } from './key_manager.js';
 
+import { getAllKeys } from './key_manager.js';
+
 export async function OpenAI(request) {
   const url = new URL(request.url);
   if (url.pathname === '/v1/diag') {

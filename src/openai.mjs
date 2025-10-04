@@ -7,97 +7,100 @@ const errorTracker = new ErrorTracker();
 const MAX_RETRIES = 5;
 
 async function fetchWithRetry(url, options) {
+  const timerLabel = `[${new Date().toISOString()}] fetchWithRetry`;
   console.log(`[${new Date().toISOString()}] --- fetchWithRetry START ---`);
-  console.time(`[${new Date().toISOString()}] fetchWithRetry`);
+  console.time(timerLabel);
   let retries = 0;
   let lastError = null;
 
-  while (retries < MAX_RETRIES) {
-    const apiKeyObject = await getRandomKey();
-    if (!apiKeyObject) {
-      console.error('All API keys are unavailable.');
-      throw new Error('All API keys are currently unavailable.');
-    }
-    const currentKey = apiKeyObject.key;
-
-    // --- CRITICAL FIX START ---
-    // Ensure the API key is NOT in the query parameters.
-    const urlObject = new URL(url);
-    if (urlObject.searchParams.has('key')) {
-      console.warn('[fetchWithRetry] Removing API key from query parameter to enforce header-only authentication.');
-      urlObject.searchParams.delete('key');
-    }
-    const finalUrl = urlObject.toString();
-    // --- CRITICAL FIX END ---
-
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), adaptiveTimeout.getTimeout());
-
-    // Correctly set header for Google Gemini API and remove incorrect one
-    delete options.headers['Authorization'];
-    options.headers['x-goog-api-key'] = currentKey;
-    options.signal = controller.signal;
-
-    try {
-      console.log(`[${new Date().toISOString()}] [fetchWithRetry] Attempt #${retries + 1} to fetch URL: ${finalUrl}`);
-      console.log(`[${new Date().toISOString()}] [fetchWithRetry] Using API Key starting with: ${currentKey.substring(0, 8)}...`);
-      console.log(`[${new Date().toISOString()}] [fetchWithRetry] About to call fetch.`);
-      const response = await fetch(finalUrl, options);
-      console.log(`[${new Date().toISOString()}] [fetchWithRetry] fetch completed with status: ${response.status}`);
-      clearTimeout(timeoutId);
-
-      // --- CRITICAL FIX: Abort on any 4xx client error ---
-      if (response.status >= 400 && response.status < 500) {
-        const errorBody = await response.json().catch(() => ({ message: `Client error with status ${response.status}` }));
-        console.error(`[fetchWithRetry] Client error (${response.status}) received. Halting retries.`, errorBody);
-        throw new Error(JSON.stringify(errorBody)); // Throw to exit the retry loop immediately.
+  try {
+    while (retries < MAX_RETRIES) {
+      const apiKeyObject = await getRandomKey();
+      if (!apiKeyObject) {
+        console.error('All API keys are unavailable.');
+        throw new Error('All API keys are currently unavailable.');
       }
-      // --- END CRITICAL FIX ---
+      const currentKey = apiKeyObject.key;
 
-      if (response.ok) {
-        adaptiveTimeout.decreaseTimeout();
-        console.timeEnd(`[${new Date().toISOString()}] fetchWithRetry`);
-        console.log(`[${new Date().toISOString()}] --- fetchWithRetry END (Success) ---`);
-        return response;
+      // --- CRITICAL FIX START ---
+      // Ensure the API key is NOT in the query parameters.
+      const urlObject = new URL(url);
+      if (urlObject.searchParams.has('key')) {
+        console.warn('[fetchWithRetry] Removing API key from query parameter to enforce header-only authentication.');
+        urlObject.searchParams.delete('key');
       }
+      const finalUrl = urlObject.toString();
+      // --- CRITICAL FIX END ---
 
-      if (response.status === 429) {
-        console.error(`API quota exceeded for key ${currentKey}. Halting retries.`);
-        throw new Error('API quota exceeded. Halting retries.');
-      }
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), adaptiveTimeout.getTimeout());
 
-      const errorData = await response.json().catch(() => ({ status: response.status, message: response.statusText }));
-      errorData.status = response.status;
-      lastError = errorData;
+      // Correctly set header for Google Gemini API and remove incorrect one
+      delete options.headers['Authorization'];
+      options.headers['x-goog-api-key'] = currentKey;
+      options.signal = controller.signal;
 
-      errorTracker.trackError(errorData, currentKey);
+      try {
+        console.log(`[${new Date().toISOString()}] [fetchWithRetry] Attempt #${retries + 1} to fetch URL: ${finalUrl}`);
+        console.log(`[${new Date().toISOString()}] [fetchWithRetry] Using API Key starting with: ${currentKey.substring(0, 8)}...`);
+        console.log(`[${new Date().toISOString()}] [fetchWithRetry] About to call fetch.`);
+        const response = await fetch(finalUrl, options);
+        console.log(`[${new Date().toISOString()}] [fetchWithRetry] fetch completed with status: ${response.status}`);
+        clearTimeout(timeoutId);
 
-      const delay = calculateRetryDelay(errorData, retries);
-      if (delay > 0) {
+        // --- CRITICAL FIX: Abort on any 4xx client error ---
+        if (response.status >= 400 && response.status < 500) {
+          const errorBody = await response.json().catch(() => ({ message: `Client error with status ${response.status}` }));
+          console.error(`[fetchWithRetry] Client error (${response.status}) received. Halting retries.`, errorBody);
+          throw new Error(JSON.stringify(errorBody)); // Throw to exit the retry loop immediately.
+        }
+        // --- END CRITICAL FIX ---
+
+        if (response.ok) {
+          adaptiveTimeout.decreaseTimeout();
+          console.log(`[${new Date().toISOString()}] --- fetchWithRetry END (Success) ---`);
+          return response;
+        }
+
+        if (response.status === 429) {
+          console.error(`API quota exceeded for key ${currentKey}. Halting retries.`);
+          throw new Error('API quota exceeded. Halting retries.');
+        }
+
+        const errorData = await response.json().catch(() => ({ status: response.status, message: response.statusText }));
+        errorData.status = response.status;
+        lastError = errorData;
+
+        errorTracker.trackError(errorData, currentKey);
+
+        const delay = calculateRetryDelay(errorData, retries);
+        if (delay > 0) {
+          await new Promise(resolve => setTimeout(resolve, delay));
+        }
+        retries++;
+
+      } catch (error) {
+        clearTimeout(timeoutId);
+        lastError = error;
+        errorTracker.trackError(error, currentKey);
+
+        if (error.name === 'AbortError') {
+          console.error(`Request timed out with key ${currentKey}. Increasing timeout.`);
+          adaptiveTimeout.increaseTimeout();
+        }
+
+        const delay = calculateRetryDelay(error, retries);
         await new Promise(resolve => setTimeout(resolve, delay));
+        retries++;
       }
-      retries++;
-
-    } catch (error) {
-      clearTimeout(timeoutId);
-      lastError = error;
-      errorTracker.trackError(error, currentKey);
-
-      if (error.name === 'AbortError') {
-        console.error(`Request timed out with key ${currentKey}. Increasing timeout.`);
-        adaptiveTimeout.increaseTimeout();
-      }
-
-      const delay = calculateRetryDelay(error, retries);
-      await new Promise(resolve => setTimeout(resolve, delay));
-      retries++;
     }
-  }
 
-  console.error(`Request failed after ${MAX_RETRIES} retries. Last error:`, lastError);
-  console.timeEnd(`[${new Date().toISOString()}] fetchWithRetry`);
-  console.log(`[${new Date().toISOString()}] --- fetchWithRetry END (Failure) ---`);
-  throw new Error(`Request failed after ${MAX_RETRIES} retries. Last error: ${lastError.message || lastError}`);
+    console.error(`Request failed after ${MAX_RETRIES} retries. Last error:`, lastError);
+    throw new Error(`Request failed after ${MAX_RETRIES} retries. Last error: ${lastError.message || lastError}`);
+  } finally {
+    console.timeEnd(timerLabel);
+    console.log(`[${new Date().toISOString()}] --- fetchWithRetry FINALIZED ---`);
+  }
 }
 
 function createSSETransformer() {
@@ -193,37 +196,6 @@ const modelMap = new Map([
 
 
 export async function OpenAI(request) {
-  const url = new URL(request.url);
-  if (url.pathname === '/v1/env_check') {
-    try {
-      const diagnostics = {
-        env: {
-          UPSTASH_REDIS_REST_URL_EXISTS: !!process.env.UPSTASH_REDIS_REST_URL,
-          UPSTASH_REDIS_REST_TOKEN_EXISTS: !!process.env.UPSTASH_REDIS_REST_TOKEN,
-        },
-        redis: {
-          connection_status: 'pending',
-          key_count: -1,
-        },
-      };
-      try {
-        const allKeys = await getAllKeys();
-        diagnostics.redis.connection_status = 'success';
-        diagnostics.redis.key_count = allKeys.length;
-      } catch (redisError) {
-        diagnostics.redis.connection_status = 'failure';
-        diagnostics.redis.error = redisError.message;
-      }
-      return new Response(JSON.stringify(diagnostics), {
-        headers: { 'Content-Type': 'application/json' },
-      });
-    } catch (error) {
-      return new Response(JSON.stringify({ error: error.message }), {
-        status: 500,
-        headers: { 'Content-Type': 'application/json' },
-      });
-    }
-  }
 
   console.log(`[${new Date().toISOString()}] --- OpenAI START ---`);
   try {

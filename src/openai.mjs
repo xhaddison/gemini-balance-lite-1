@@ -180,16 +180,27 @@ const modelMap = new Map([
 
 export async function OpenAI(request) {
   const url = new URL(request.url);
-
   if (url.pathname === '/v1/env_check') {
     try {
-      const env_vars = {
-        UPSTASH_REDIS_REST_URL_present: !!process.env.UPSTASH_REDIS_REST_URL,
-        UPSTASH_REDIS_REST_TOKEN_present: !!process.env.UPSTASH_REDIS_REST_TOKEN,
-        URL_length: process.env.UPSTASH_REDIS_REST_URL ? process.env.UPSTASH_REDIS_REST_URL.length : 0,
-        TOKEN_length: process.env.UPSTASH_REDIS_REST_TOKEN ? process.env.UPSTASH_REDIS_REST_TOKEN.length : 0,
+      const diagnostics = {
+        env: {
+          UPSTASH_REDIS_REST_URL_EXISTS: !!process.env.UPSTASH_REDIS_REST_URL,
+          UPSTASH_REDIS_REST_TOKEN_EXISTS: !!process.env.UPSTASH_REDIS_REST_TOKEN,
+        },
+        redis: {
+          connection_status: 'pending',
+          key_count: -1,
+        },
       };
-      return new Response(JSON.stringify(env_vars), {
+      try {
+        const allKeys = await getAllKeys();
+        diagnostics.redis.connection_status = 'success';
+        diagnostics.redis.key_count = allKeys.length;
+      } catch (redisError) {
+        diagnostics.redis.connection_status = 'failure';
+        diagnostics.redis.error = redisError.message;
+      }
+      return new Response(JSON.stringify(diagnostics), {
         headers: { 'Content-Type': 'application/json' },
       });
     } catch (error) {
@@ -199,8 +210,6 @@ export async function OpenAI(request) {
       });
     }
   }
-
-
 
   console.log(`[${new Date().toISOString()}] --- OpenAI START ---`);
   try {
@@ -225,11 +234,11 @@ export async function OpenAI(request) {
       }
     }
 
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:${stream ? 'streamGenerateContent' : 'generateContent'}`;
+    const geminiApiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:${stream ? 'streamGenerateContent' : 'generateContent'}`;
 
-    console.log(`[${new Date().toISOString()}] [OpenAI] Forwarding request to model: ${model}, URL: ${url}`);
+    console.log(`[${new Date().toISOString()}] [OpenAI] Forwarding request to model: ${model}, URL: ${geminiApiUrl}`);
     console.log(`[${new Date().toISOString()}] [OpenAI] About to call fetchWithRetry.`);
-    const response = await fetchWithRetry(url, {
+    const response = await fetchWithRetry(geminiApiUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(geminiRequest),

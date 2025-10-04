@@ -1,12 +1,12 @@
 import { AdaptiveTimeout, ErrorTracker, calculateRetryDelay } from './utils.js';
-import { getRandomKey, getAllKeys } from './key_manager.js';
+import { getRandomKey, getAllKeys, validateKey } from './key_manager.js';
 
 const adaptiveTimeout = new AdaptiveTimeout();
 const errorTracker = new ErrorTracker();
 
 const MAX_RETRIES = 5;
 
-async function fetchWithRetry(url, options) {
+async function fetchWithRetry(url, options, apiKey) {
   const timerLabel = `[${new Date().toISOString()}] fetchWithRetry`;
   console.log(`[${new Date().toISOString()}] --- fetchWithRetry START ---`);
   console.time(timerLabel);
@@ -15,12 +15,7 @@ async function fetchWithRetry(url, options) {
 
   try {
     while (retries < MAX_RETRIES) {
-      const apiKeyObject = await getRandomKey();
-      if (!apiKeyObject) {
-        console.error('All API keys are unavailable.');
-        throw new Error('All API keys are currently unavailable.');
-      }
-      const currentKey = apiKeyObject.key;
+      const currentKey = apiKey;
 
       // --- CRITICAL FIX START ---
       // Ensure the API key is NOT in the query parameters.
@@ -52,6 +47,12 @@ async function fetchWithRetry(url, options) {
         if (response.status >= 400 && response.status < 500) {
           const errorBody = await response.json().catch(() => ({ message: `Client error with status ${response.status}` }));
           console.error(`[fetchWithRetry] Client error (${response.status}) received. Halting retries.`, errorBody);
+          // For quota issues with a user-provided key, we throw a specific, catchable error.
+          if (response.status === 429) {
+              const specificError = new Error(JSON.stringify(errorBody));
+              specificError.name = 'QuotaExceededError';
+              throw specificError;
+          }
           throw new Error(JSON.stringify(errorBody)); // Throw to exit the retry loop immediately.
         }
         // --- END CRITICAL FIX ---
@@ -64,7 +65,9 @@ async function fetchWithRetry(url, options) {
 
         if (response.status === 429) {
           console.error(`API quota exceeded for key ${currentKey}. Halting retries.`);
-          throw new Error('API quota exceeded. Halting retries.');
+          const specificError = new Error('API quota exceeded. Halting retries.');
+          specificError.name = 'QuotaExceededError';
+          throw specificError;
         }
 
         const errorData = await response.json().catch(() => ({ status: response.status, message: response.statusText }));
@@ -83,6 +86,11 @@ async function fetchWithRetry(url, options) {
         clearTimeout(timeoutId);
         lastError = error;
         errorTracker.trackError(error, currentKey);
+
+        // If it's a quota error, we must not retry. Re-throw to be caught by the main handler.
+        if (error.name === 'QuotaExceededError') {
+            throw error;
+        }
 
         if (error.name === 'AbortError') {
           console.error(`Request timed out with key ${currentKey}. Increasing timeout.`);
@@ -199,12 +207,25 @@ export async function OpenAI(request) {
 
   console.log(`[${new Date().toISOString()}] --- OpenAI START ---`);
   try {
+    // --- AUTHORIZATION FIX START ---
+    const authHeader = request.headers.get('Authorization');
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+        return new Response(JSON.stringify({ error: { message: 'Authorization header is missing or invalid.', type: 'authentication_error' } }), { status: 401 });
+    }
+    const clientKey = authHeader.substring(7);
+
+    const isKeyValid = await validateKey(clientKey);
+    if (!isKeyValid) {
+        return new Response(JSON.stringify({ error: { message: 'Invalid API Key.', type: 'authentication_error' } }), { status: 401 });
+    }
+    // --- AUTHORIZATION FIX END ---
+
     const requestBody = await request.json();
     const { messages, model: requestedModel, stream } = requestBody;
 
     if (!Array.isArray(messages)) {
-      console.error("[OpenAI] Invalid request body: 'messages' is not an array.", requestBody);
-      throw new Error("Invalid request body: 'messages' must be an array.");
+      console.error(\"[OpenAI] Invalid request body: 'messages' is not an array.\", requestBody);
+      throw new Error(\"Invalid request body: 'messages' must be an array.\");
     }
 
     const geminiRequest = convertToGeminiRequest(requestBody);
@@ -228,12 +249,17 @@ export async function OpenAI(request) {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(geminiRequest),
-    });
+    }, clientKey); // Pass the validated client key
     console.log(`[${new Date().toISOString()}] [OpenAI] fetchWithRetry completed.`);
 
     return getResponse(response, stream);
 
   } catch (error) {
+     // --- AUTHORIZATION: Specific error handling for quota ---
+     if (error.name === 'QuotaExceededError') {
+        return new Response(JSON.stringify({ error: { message: 'API quota exceeded for the provided key.', type: 'insufficient_quota' } }), { status: 429 });
+    }
+    // --- END AUTHORIZATION ---
     console.error(`[OpenAI] Critical error in main function: ${error.message}`, {
       error,
       requestHeaders: request.headers,

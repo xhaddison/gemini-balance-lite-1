@@ -170,3 +170,23 @@ export function verifyAdminKey(request) {
   // Ensure both token and adminKey exist and are non-empty before comparing.
   return adminKey ? token.trim() === adminKey.trim() : false;
 }
+
+/**
+ * Checks if a key exists in the Redis Set.
+ * @param {string} key - The API key to validate.
+ * @returns {Promise<boolean>} True if the key exists, false otherwise.
+ */
+export async function validateKey(key) {
+  if (!isValidKeyFormat(key)) {
+    return false;
+  }
+  try {
+    const redisClient = getRedisClient();
+    // SISMEMBER is the O(1) command to check for membership in a set.
+    const result = await redisClient.sismember(KEYS_SET_NAME, key);
+    return result === 1;
+  } catch (error) {
+    console.error(`[KeyManager] Error validating key: ${key.substring(0, 4)}...`, error);
+    return false; // On error, assume the key is not valid.
+  }
+}

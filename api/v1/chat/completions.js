@@ -208,13 +208,45 @@ export default async function handler(request) {
         const geminiApiBaseUrl = (process.env.GEMINI_API_BASE_URL || 'https://generativelanguage.googleapis.com/v1beta').trim();
     const geminiApiUrl = `${geminiApiBaseUrl}/models/${model}:${stream ? 'streamGenerateContent' : 'generateContent'}`;
 
-    // 4. Upstream API Call with dynamic key from Redis
-    const geminiApiKey = await getRandomKey();
-    if (!geminiApiKey) {
-        return new Response(JSON.stringify({ error: { message: 'Server configuration error: No available API Keys in Redis.', type: 'server_error' } }), { status: 500, headers: { 'Content-Type': 'application/json' } });
+    // 4. Upstream API Call with dynamic key from Redis or fallback
+    console.log('[DIAGNOSTIC-LOG] --- Step 7: Acquiring API Key ---');
+    let geminiApiKey;
+    let keySource = 'unknown';
+
+    console.log('[DIAGNOSTIC-LOG] Attempting to connect to Redis to retrieve API key.');
+    try {
+        const keyFromRedis = await getRandomKey();
+        if (keyFromRedis) {
+            console.log('[DIAGNOSTIC-LOG] Redis connection and key retrieval successful.');
+            const maskedKey = `${keyFromRedis.substring(0, 4)}...${keyFromRedis.substring(keyFromRedis.length - 4)}`;
+            console.log(`[DIAGNOSTIC-LOG] Retrieved masked key from Redis: ${maskedKey}`);
+            geminiApiKey = keyFromRedis;
+            keySource = 'Redis';
+        } else {
+            console.log('[DIAGNOSTIC-LOG] Redis returned no key. Proceeding to fallback.');
+        }
+    } catch (error) {
+        console.error('[DIAGNOSTIC-LOG] Redis connection failed.', error);
+        // Fallback will be handled in the next step
     }
 
-    console.log('[DIAGNOSTIC-LOG] --- Step 7: Preparing to call fetchWithRetry', { geminiApiUrl, geminiRequest: JSON.stringify(geminiRequest) });
+    if (!geminiApiKey) {
+        console.log('[DIAGNOSTIC-LOG] Falling back to GEMINI_API_KEY environment variable.');
+        geminiApiKey = process.env.GEMINI_API_KEY?.trim();
+        if (geminiApiKey) {
+            keySource = 'Environment Variable';
+        }
+    }
+
+    if (!geminiApiKey) {
+        console.error('[DIAGNOSTIC-LOG] FATAL: No API key found from Redis or environment variable.');
+        return new Response(JSON.stringify({ error: { message: 'Server configuration error: No available API Keys.', type: 'server_error' } }), { status: 500, headers: { 'Content-Type': 'application/json' } });
+    }
+
+    const finalMaskedKey = `${geminiApiKey.substring(0, 4)}...${geminiApiKey.substring(geminiApiKey.length - 4)}`;
+    console.log(`[DIAGNOSTIC-LOG] Final API key source: ${keySource}. Using masked key: ${finalMaskedKey}`);
+
+    console.log('[DIAGNOSTIC-LOG] --- Step 8: Preparing to call fetchWithRetry', { geminiApiUrl, geminiRequest: JSON.stringify(geminiRequest) });
     const response = await fetchWithRetry(geminiApiUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

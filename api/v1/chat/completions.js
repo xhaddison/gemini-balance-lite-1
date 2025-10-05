@@ -124,7 +124,7 @@ export default async function handler(request) {
     }
     const geminiRequest = convertToGeminiRequest(requestBody);
     const model = modelMap.get(requestedModel) || 'gemini-2.5-pro';
-    const geminiApiUrl = `https://generativelenlanguage.googleapis.com/v1beta/models/${model}:${stream ? 'streamGenerateContent' : 'generateContent'}`;
+    const geminiApiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:${stream ? 'streamGenerateContent' : 'generateContent'}`;
 
     // 4. Upstream API Call with a single, reliable environment variable
     const geminiApiKey = process.env.GEMINI_API_KEY;

@@ -6,17 +6,23 @@ let redis;
 // --- Redis Client Singleton ---
 function getRedisClient() {
   if (!redis) {
-    if (!process.env.UPSTASH_REDIS_REST_URL || !process.env.UPSTASH_REDIS_REST_TOKEN) {
-      throw new Error('Upstash Redis credentials are not configured in environment variables.');
-    }
     try {
+      // In Vercel Edge Functions, environment variables provided by integrations
+      // like Upstash are accessible via the standard `process.env` object.
+      // This is the official, documented method. Using `Redis.fromEnv()` previously
+      // failed because it may not be compatible with the Vercel Edge Runtime's
+      // environment variable handling.
+      if (!process.env.UPSTASH_REDIS_REST_URL || !process.env.UPSTASH_REDIS_REST_TOKEN) {
+        throw new Error('Upstash Redis environment variables are not configured.');
+      }
       redis = new Redis({
-        url: process.env.UPSTASH_REDIS_REST_URL.trim(),
-        token: process.env.UPSTASH_REDIS_REST_TOKEN.trim(),
+        url: process.env.UPSTASH_REDIS_REST_URL,
+        token: process.env.UPSTASH_REDIS_REST_TOKEN,
       });
     } catch (error) {
-      console.error('[CRITICAL] Redis client instantiation failed:', error);
-      throw error; // Re-throw the error after logging
+      // This will catch errors if the env vars are not set or if instantiation fails.
+      console.error('[CRITICAL] Redis client instantiation failed. Ensure UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN are correctly set in your Vercel project.', error);
+      throw new Error('Failed to connect to Upstash Redis. Please check server logs.');
     }
   }
   return redis;
@@ -165,13 +171,12 @@ export async function getRandomKey() {
  * @param {Request} request - The incoming request object.
  * @returns {boolean} True if the admin key is valid, false otherwise.
  */
-export function verifyAdminKey(request) {
+export function verifyAdminKey(request, adminKey) {
   const authHeader = request.headers.get('Authorization');
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
     return false;
   }
   const token = authHeader.substring(7);
-  const adminKey = process.env.ADMIN_LOGIN_KEY;
   // Ensure both token and adminKey exist and are non-empty before comparing.
   return adminKey ? token.trim() === adminKey.trim() : false;
 }

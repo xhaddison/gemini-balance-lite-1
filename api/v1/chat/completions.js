@@ -98,7 +98,7 @@ const modelMap = new Map([
 
 // The main, self-contained handler function
 export default async function handler(request) {
-
+  console.log('[DIAGNOSTIC-LOG] --- Step 1: Handler started');
   // --- ARCHITECTURAL FIX: Unified Try/Catch Block ---
   // This single, top-level try/catch block ensures that ANY error,
   // from JSON parsing to business logic execution, is caught and handled gracefully.
@@ -106,11 +106,14 @@ export default async function handler(request) {
     if (request.method !== 'POST') {
       return new Response(JSON.stringify({ error: { message: 'Method Not Allowed', type: 'invalid_request_error' } }), { status: 405, headers: { 'Content-Type': 'application/json' } });
     }
+    console.log('[DIAGNOSTIC-LOG] --- Step 2: Method check passed');
 
     // 1. Robust JSON Parsing (Text-First Approach)
     let requestBody;
     try {
+        console.log('[DIAGNOSTIC-LOG] --- Step 3: Attempting to parse JSON body');
         requestBody = await request.json();
+        console.log('[DIAGNOSTIC-LOG] --- Step 4: JSON body parsed successfully');
     } catch (e) {
         // Forward the specific parsing error for precise diagnostics
         throw new SyntaxError(e.message);
@@ -122,7 +125,9 @@ export default async function handler(request) {
     if (!messages || !Array.isArray(messages)) {
       return new Response(JSON.stringify({ error: { message: "Invalid request body: 'messages' must be an array.", type: 'invalid_request_error' } }), { status: 400, headers: { 'Content-Type': 'application/json' } });
     }
+    console.log('[DIAGNOSTIC-LOG] --- Step 5: Converting to Gemini request');
     const geminiRequest = convertToGeminiRequest(requestBody);
+    console.log('[DIAGNOSTIC-LOG] --- Step 6: Converted to Gemini request successfully');
     const model = modelMap.get(requestedModel) || 'gemini-2.5-pro';
     const geminiApiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:${stream ? 'streamGenerateContent' : 'generateContent'}`;
 
@@ -132,11 +137,13 @@ export default async function handler(request) {
         return new Response(JSON.stringify({ error: { message: 'Server configuration error: Missing Gemini API Key.', type: 'server_error' } }), { status: 500, headers: { 'Content-Type': 'application/json' } });
     }
 
+    console.log('[DIAGNOSTIC-LOG] --- Step 7: Preparing to call fetchWithRetry', { geminiApiUrl, geminiRequest: JSON.stringify(geminiRequest) });
     const response = await fetchWithRetry(geminiApiUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(geminiRequest),
     }, geminiApiKey);
+    console.log('[DIAGNOSTIC-LOG] --- Step 8: fetchWithRetry call successful');
 
     // 5. Response Handling
     if (stream) {
@@ -161,6 +168,7 @@ export default async function handler(request) {
     }
 
   } catch (error) {
+    console.log('[DIAGNOSTIC-LOG] --- ERROR: Caught an error in the main handler');
     // This is the unified error handler.
     if (error instanceof SyntaxError) {
       return new Response(JSON.stringify({ error: { message: 'Invalid JSON payload: ' + error.message, type: 'invalid_request_error' } }), { status: 400, headers: { 'Content-Type': 'application/json' } });

@@ -183,7 +183,7 @@ const modelMap = new Map([
 ]);
 
 
-export async function OpenAI(request) {
+export async function OpenAI(request, ctx, requestBody) {
 
   console.log(`[${new Date().toISOString()}] --- OpenAI START ---`);
   try {
@@ -200,12 +200,12 @@ export async function OpenAI(request) {
     }
     // --- AUTHORIZATION FIX END ---
 
-    const requestBody = await request.json();
+
     const { messages, model: requestedModel, stream } = requestBody;
 
-    if (!Array.isArray(messages)) {
-      console.error("[OpenAI] Invalid request body: 'messages' is not an array.", requestBody);
-      throw new Error("Invalid request body: 'messages' must be an array.");
+    if (!messages || !Array.isArray(messages)) {
+      console.error("[OpenAI] Invalid request body: 'messages' is missing or not an array.", requestBody);
+      return new Response(JSON.stringify({ error: { message: "Invalid request body: 'messages' must be an array.", type: 'invalid_request_error' } }), { status: 400 });
     }
 
     const geminiRequest = convertToGeminiRequest(requestBody);

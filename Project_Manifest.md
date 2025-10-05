@@ -8,6 +8,37 @@
 
 ## 里程碑 (Milestones)
 
+### 里程碑: "生产环境根路径修复" (v2025.10.05)
+- **状态**: 已完成
+- **核心成就**:
+  - 在经历了多次错误的诊断后，最终通过创建 `api/index.js` 并添加根路径重写规则 (`"source": "/", "destination": "/api"`)，彻底解决了 `404 Not Found` 问题。
+  - 通过 `curl` 测试成功返回 `200 OK`，无可辩驳地验证了根路径功能已完全恢复。
+- **关联历史**: `[v12.0.0] - 2025-10-05 - Production Hotfix: Root Path 404`
+
+
+### 里程碑: "生产环境路由修复" (v2025.10.05)
+- **状态**: 已完成
+- **核心成就**:
+  - 成功诊断并修复了一个由于 `vercel.json` 路由配置错误导致的 `404 Not Found` 生产环境 Bug。
+  - 通过 `curl` 测试返回 `405 Method Not Allowed` 状态码，无可辩驳地验证了路由已恢复正常。
+- **关联历史**: `[v11.0.0] - 2025-10-05 - Production Hotfix: 404 Not Found`
+
+
+### 里程碑: "项目最终稳定与生产就绪" (v2025.10.06)
+- **状态**: 已完成 (COMPLETED)
+- **核心成就**:
+  - 在经历了包括 API 密钥配额耗尽、多次灾难性 UAT 失败在内的、史诗级的调试过程后，项目最终通过一次成功的生产部署和最终 UAT 验证，达到了一个完全稳定的、可交付的生产就绪状态。
+  - 最终的应用架构回归并稳定在一个简单、可靠的、基于单一 `GEMINI_API_KEY` 环境变量的模式上，所有核心功能均已通过端到端验证。
+- **关联历史**: `[v9.0.0] - 2025-10-06 - Production Hotfix: Invalid API Key`
+
+### 里程碑: "UAT灾难性失败与关键功能回归" (v2025.10.05)
+- **状态**: 失败 (FAILED)
+- **核心教训**:
+  - 对 `SyntaxError` Bug 的修复引入了一个灾难性的功能回归，导致所有请求验证和认证逻辑被完全绕过。
+  - 此事件凸显了在修复 Bug 时，进行全面回归测试的绝对必要性，以防止对现有功能造成破坏。
+  - 再次验证了 `用户证据 > AI推断` 的铁律，基于错误URL的测试得出了完全无效的结论。
+- **关联历史**: [v3.5.0] - 2025-10-05 - UAT Failure & Critical Regression
+
 ### 里程碑: "生产部署成功" (v2025.10.04)
 - **状态**: 已完成
 - **核心成就**:
@@ -155,7 +186,7 @@
 根据“单一事实来源”协议，并遵照您的最终决定，以下为本项目当前阶段唯一、正确的线上环境标识符。所有自动化操作必须以此为准。
 
 - **Vercel Project Name**: `gemini-balance-lite`
-- **Active Deployment URL**: `https://gemini-balance-lite-qcwpltxtx-xhaddisons-projects.vercel.app`
+- **Active Deployment URL**: `https://gemini-balance-lite-hbgndn3ml-xhaddisons-projects.vercel.app`
 - **GitHub Repository**: `https://github.com/xhaddison/gemini-balance-lite-1.git`
 
 ## 核心技术栈 (Core Tech Stack) - v2025.10.01

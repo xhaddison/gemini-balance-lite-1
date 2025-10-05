@@ -1,7 +1,6 @@
 
 import { exec } from 'child_process';
 import { readFile, writeFile } from 'fs/promises';
-import fetch from 'node-fetch';
 
 const executeCommand = (command) => {
   return new Promise((resolve, reject) => {

@@ -132,7 +132,7 @@ export default async function handler(request) {
     const geminiApiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:${stream ? 'streamGenerateContent' : 'generateContent'}`;
 
     // 4. Upstream API Call with a single, reliable environment variable
-    const geminiApiKey = process.env.GEMINI_API_KEY;
+    const geminiApiKey = GEMINI_API_KEY;
     if (!geminiApiKey) {
         return new Response(JSON.stringify({ error: { message: 'Server configuration error: Missing Gemini API Key.', type: 'server_error' } }), { status: 500, headers: { 'Content-Type': 'application/json' } });
     }

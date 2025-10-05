@@ -2,7 +2,15 @@
   "installCommand": "npm install",
   "rewrites": [
     {
-      "source": "/api/v1/(.*)",
+      "source": "/",
+      "destination": "/api"
+    },
+    {
+      "source": "/api/v1/:path*",
+      "destination": "/api/v1/:path*"
+    },
+    {
+      "source": "/v1beta/(.*)",
       "destination": "/api/v1/chat/completions.js"
     }
   ]

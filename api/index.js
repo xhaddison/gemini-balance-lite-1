@@ -1,10 +1,7 @@
-  import { handleRequest } from "../src/handle_request.js";
-
-
-  export default {
-    async fetch (req, context) {
-      const url = new URL(req.url);
-      console.log('Request URL:', req.url);
-      return handleRequest(req, context);
-    }
-  }
+export default function handler(request, response) {
+  response.status(200).json({
+    message: 'Hello from the root!',
+    status: 'OK',
+    timestamp: new Date().toISOString(),
+  });
+}

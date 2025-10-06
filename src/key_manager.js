@@ -7,6 +7,7 @@ let redis;
 function getRedisClient() {
   if (!redis) {
     if (!process.env.UPSTASH_REDIS_REST_URL || !process.env.UPSTASH_REDIS_REST_TOKEN) {
+      console.error('[CRITICAL] Upstash Redis environment variables are missing. Please set UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN.');
       throw new Error('Upstash Redis credentials are not configured in environment variables.');
     }
     try {

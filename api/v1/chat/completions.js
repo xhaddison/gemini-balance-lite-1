@@ -1,9 +1,6 @@
 // Vercel Edge Function - Radically Simple, Self-Contained, High-Performance Edition
 import { Redis } from '@upstash/redis';
 
-export const config = {
-  runtime: 'edge',
-};
 
 // --- Start of Inlined, Radically Simple key_manager.js Logic ---
 let redis;
@@ -123,8 +120,7 @@ export default async function handler(request) {
     const { model: requestedModel, stream } = requestBody;
     const geminiRequest = convertToGeminiRequest(requestBody);
     const model = modelMap.get(requestedModel) || 'gemini-2.5-pro';
-    // FINAL TEST: Isolate the upstream dependency. Point to a reliable test endpoint.
-    const geminiApiUrl = `https://httpbin.org/delay/8`;
+    const geminiApiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:${stream ? 'streamGenerateContent' : 'generateContent'}`;
 
     const response = await fetchWithTimeout(geminiApiUrl, {
       method: 'POST',

@@ -29,11 +29,46 @@ function getRedisClient() {
 }
 
 // --- Constants ---
-const KEYS_SET_NAME = 'gemini_keys_set';
+const ACTIVE_KEYS_SET = 'active_keys';
+const COOLDOWN_KEYS_HASH = 'cooldown:keys';
+const INVALID_KEYS_SET = 'invalid_keys';
 
-// --- Private Helpers ---
-function isValidKeyFormat(key) {
-  return typeof key === 'string' && key.trim().length > 30;
+
+/**
+ * [Internal] Cleans the cooldown hash by moving expired keys back to the active set.
+ * This is a critical maintenance task to ensure keys are recycled.
+ */
+async function cleanupCooldownKeys() {
+  const redisClient = getRedisClient();
+  const now = Math.floor(Date.now() / 1000);
+
+  try {
+    const cooldownKeys = await redisClient.hgetall(COOLDOWN_KEYS_HASH);
+    if (!cooldownKeys) {
+      return; // No keys in cooldown, nothing to do.
+    }
+
+    const keysToReactivate = [];
+    const keysToRemoveFromCooldown = [];
+
+    for (const key in cooldownKeys) {
+      if (cooldownKeys[key] <= now) {
+        keysToReactivate.push(key);
+        keysToRemoveFromCooldown.push(key);
+      }
+    }
+
+    if (keysToReactivate.length > 0) {
+      const tx = redisClient.multi();
+      tx.sadd(ACTIVE_KEYS_SET, ...keysToReactivate);
+      tx.hdel(COOLDOWN_KEYS_HASH, ...keysToRemoveFromCooldown);
+      await tx.exec();
+      console.log(`[KeyManager] Reactivated ${keysToReactivate.length} key(s) from cooldown.`);
+    }
+  } catch (error) {
+    console.error('[KeyManager] Error during cooldown cleanup:', error);
+    // Do not throw, as the main logic should still try to proceed.
+  }
 }
 
 // --- Public API ---
@@ -45,7 +80,7 @@ function isValidKeyFormat(key) {
 export async function getAllKeys() {
   const redisClient = getRedisClient();
   // SMEMBERS is efficient for retrieving all members of a set.
-  return await redisClient.smembers(KEYS_SET_NAME);
+  return await redisClient.smembers(ACTIVE_KEYS_SET);
 }
 
 /**
@@ -60,7 +95,7 @@ export async function addKey(key) {
   try {
     const redisClient = getRedisClient();
     // SADD returns 1 if the key was new, 0 if it already existed.
-    const result = await redisClient.sadd(KEYS_SET_NAME, key);
+    const result = await redisClient.sadd(ACTIVE_KEYS_SET, key);
     if (result > 0) {
         console.log(`[KeyManager] Successfully added key: ${key.substring(0, 4)}...`);
         return { success: true, message: 'Key added successfully.' };
@@ -105,7 +140,7 @@ export async function addKeysBulk(keys) {
 
     if (valid_keys_to_add.size > 0) {
       // Use SADD with multiple arguments for efficiency.
-      await redisClient.sadd(KEYS_SET_NAME, ...Array.from(valid_keys_to_add));
+      await redisClient.sadd(ACTIVE_KEYS_SET, ...Array.from(valid_keys_to_add));
     }
 
     return {
@@ -137,7 +172,7 @@ export async function deleteKey(key) {
   try {
     const redisClient = getRedisClient();
     // SREM returns 1 if the key was found and removed, 0 otherwise.
-    const result = await redisClient.srem(KEYS_SET_NAME, key);
+    const result = await redisClient.srem(ACTIVE_KEYS_SET, key);
     if (result > 0) {
       console.log(`[KeyManager] Successfully deleted key: ${key.substring(0, 4)}...`);
       return { success: true, message: 'Key deleted successfully.' };
@@ -156,14 +191,39 @@ export async function deleteKey(key) {
  * @returns {Promise<{key: string} | null>} A random key object or null if the set is empty.
  */
 export async function getRandomKey() {
+  await cleanupCooldownKeys(); // CRITICAL: Ensure cooldown is cleared before getting a key.
   const redisClient = getRedisClient();
   // SRANDMEMBER is the O(1) command to get a random element from a set.
-  const randomKey = await redisClient.srandmember(KEYS_SET_NAME);
+  const randomKey = await redisClient.srandmember(ACTIVE_KEYS_SET);
   if (!randomKey) {
     console.error("[KeyManager] No keys available in the Redis set.");
     return null;
   }
   return { key: randomKey };
+}
+
+/**
+ * Gets a specified number of random keys from the active set.
+ * This is the primary function for the API router to get a pool of keys to try.
+ * @param {number} [count=5] - The number of random keys to retrieve.
+ * @returns {Promise<string[]>} An array of random keys. Returns an empty array if no keys are available.
+ */
+export async function getAvailableKeys(count = 5) {
+  await cleanupCooldownKeys(); // Ensure cooldown is cleared before getting keys.
+  const redisClient = getRedisClient();
+
+  try {
+    // SRANDMEMBER with a count argument returns an array of unique random elements.
+    const keys = await redisClient.srandmember(ACTIVE_KEYS_SET, count);
+    if (!keys || keys.length === 0) {
+      console.error("[KeyManager] No active keys available to serve the request.");
+      return [];
+    }
+    return keys;
+  } catch (error) {
+    console.error('[KeyManager] Error retrieving available keys:', error);
+    return []; // Return empty array on error to prevent caller failure.
+  }
 }
 
 /**
@@ -193,7 +253,7 @@ export async function validateKey(key) {
   try {
     const redisClient = getRedisClient();
     // SISMEMBER is the O(1) command to check for membership in a set.
-    const result = await redisClient.sismember(KEYS_SET_NAME, key);
+    const result = await redisClient.sismember(ACTIVE_KEYS_SET, key);
     return result === 1;
   } catch (error) {
     console.error(`[KeyManager] Error validating key: ${key.substring(0, 4)}...`, error);

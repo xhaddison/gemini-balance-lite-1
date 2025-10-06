@@ -21,6 +21,7 @@
     "playwright-extra": "^4.3.6",
     "puppeteer": "^24.22.3",
     "puppeteer-extra-plugin-stealth": "^2.11.2",
+    "uuid": "^13.0.0",
     "winston": "^3.17.0"
   },
   "scripts": {

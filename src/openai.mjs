@@ -1,3 +1,4 @@
+import fetch from 'node-fetch';
 import { AdaptiveTimeout, ErrorTracker, calculateRetryDelay } from './utils.js';
 import { getRandomKey, getAllKeys, validateKey } from './key_manager.js';
 

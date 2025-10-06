@@ -109,7 +109,7 @@ export async function handleRequest(request, ctx) {
     return handleAdminRequest(request);
   }
 
-  if (url.pathname === '/api/query' || url.pathname.startsWith('/v1/')) {
+  if (url.pathname.startsWith('/api/v1/')) {
     try {
       console.log(`[${new Date().toISOString()}] Routing to OpenAI module for path: ${url.pathname}`);
       const response = await OpenAI(request);
@@ -135,92 +135,8 @@ export async function handleRequest(request, ctx) {
     });
   }
 
-  let attempts = 0;
+  // --- Final Catch-All Route ---
+  // If no other route matched, return a 404 error.
+  console.log(`[${new Date().toISOString()}] No route matched for path: ${url.pathname}. Returning 404.`);
+  return jsonResponse({ success: false, message: 'Not Found' }, 404);
 
-  while (attempts < MAX_RETRIES) {
-    // Moved request.json() inside the loop to avoid parsing body for all requests.
-    const requestBody = await request.json().catch(err => {
-        console.error("Failed to parse request body as JSON.", err);
-        return null; // Return null if parsing fails
-    });
-
-    if (requestBody === null) {
-      return jsonResponse({
-        success: false,
-        message: 'Invalid JSON request body.'
-      }, 400);
-    }
-    const apiKeyObject = await getRandomKey();
-
-    if (!apiKeyObject) {
-      console.error("CRITICAL: No API keys available in the key pool. Halting request processing.");
-      return jsonResponse({
-        success: false,
-        message: 'The service is currently unavailable as there are no active API keys. Please contact the administrator.'
-      }, 503);
-    }
-
-    const pathname = url.pathname;
-    const search = url.search;
-    const targetUrl = `https://generativelanguage.googleapis.com${pathname}${search}`;
-
-    const headers = new Headers(request.headers);
-    headers.set('x-goog-api-key', apiKeyObject.key);
-
-    try {
-      const controller = new AbortController();
-      const timeout = adaptiveTimeout.getTimeout();
-      const timeoutId = setTimeout(() => controller.abort(), timeout);
-
-      const response = await fetch(targetUrl, {
-        method: request.method,
-        headers: headers,
-        body: JSON.stringify(requestBody),
-        signal: controller.signal
-      });
-
-      clearTimeout(timeoutId);
-
-      if (response.ok) {
-        adaptiveTimeout.decreaseTimeout();
-        const responseHeaders = new Headers(response.headers);
-        responseHeaders.set('Referrer-Policy', 'no-referrer');
-
-        const contentType = response.headers.get('content-type') || '';
-        let body;
-        if (contentType.includes('application/json')) {
-            body = JSON.stringify(await response.json());
-        } else if (contentType.includes('text/')) {
-            body = await response.text();
-        } else {
-            body = await response.arrayBuffer();
-        }
-
-        return new Response(body, {
-            status: response.status,
-            headers: responseHeaders
-        });
-      }
-
-      const errorData = await response.json().catch(() => ({ status: response.status, message: response.statusText }));
-      errorData.status = response.status;
-
-      errorTracker.trackError(errorData, apiKeyObject.key);
-
-    } catch (error) {
-      errorTracker.trackError(error, apiKeyObject.key);
-
-      if (error.name === 'AbortError' || error.status === 504) {
-        adaptiveTimeout.increaseTimeout();
-      }
-
-      await new Promise(resolve => setTimeout(resolve, calculateRetryDelay(error, attempts)));
-    } finally {
-      attempts++;
-    }
-  }
-
-  return new Response('The request failed after multiple retries.', {
-    status: 502,
-  });
-}

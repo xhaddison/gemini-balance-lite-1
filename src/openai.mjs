@@ -1,7 +1,6 @@
-import { AdaptiveTimeout, ErrorTracker, calculateRetryDelay } from './utils.js';
-import { getRandomKey, getAllKeys, validateKey } from './key_manager.js';
+import { ErrorTracker, calculateRetryDelay } from './utils.js';
+import { getAllKeys } from './key_manager.js';
 
-const adaptiveTimeout = new AdaptiveTimeout();
 const errorTracker = new ErrorTracker();
 
 const MAX_RETRIES = 5;
@@ -187,21 +186,20 @@ export async function OpenAI(request) {
 
   console.log(`[${new Date().toISOString()}] --- OpenAI START ---`);
   try {
-    // --- AUTHORIZATION FIX START ---
-    const authHeader = request.headers.get('Authorization');
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-        return new Response(JSON.stringify({ error: { message: 'Authorization header is missing or invalid.', type: 'authentication_error' } }), { status: 401 });
-    }
-    const clientKey = authHeader.substring(7);
-
-    const isKeyValid = await validateKey(clientKey);
-    if (!isKeyValid) {
-        return new Response(JSON.stringify({ error: { message: 'Invalid API Key.', type: 'authentication_error' } }), { status: 401 });
-    }
-    // --- AUTHORIZATION FIX END ---
-
     const requestBody = await request.json();
     const { messages, model: requestedModel, stream } = requestBody;
+
+    const allKeys = await getAllKeys();
+
+    // Function to shuffle the keys array
+    function shuffle(array) {
+      for (let i = array.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [array[i], array[j]] = [array[j], array[i]];
+      }
+    }
+
+    shuffle(allKeys);
 
     if (!Array.isArray(messages)) {
       console.error("[OpenAI] Invalid request body: 'messages' is not an array.", requestBody);
@@ -223,13 +221,34 @@ export async function OpenAI(request) {
 
     const geminiApiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:${stream ? 'streamGenerateContent' : 'generateContent'}`;
 
+    let response;
+    let lastError = null;
     console.log(`[${new Date().toISOString()}] [OpenAI] Forwarding request to model: ${model}, URL: ${geminiApiUrl}`);
-    console.log(`[${new Date().toISOString()}] [OpenAI] About to call fetchWithRetry.`);
-    const response = await fetchWithRetry(geminiApiUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(geminiRequest),
-    }, clientKey); // Pass the validated client key
+
+    for (const key of allKeys) {
+      try {
+        console.log(`[${new Date().toISOString()}] [OpenAI] Attempting to use key starting with: ${key.substring(0, 8)}...`);
+        response = await fetchWithRetry(geminiApiUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(geminiRequest),
+        }, key); // Use the current key from the loop
+        console.log(`[${new Date().toISOString()}] [OpenAI] fetchWithRetry succeeded with a key.`);
+        break; // Exit the loop on success
+      } catch (error) {
+        lastError = error;
+        console.error(`[OpenAI] Key starting with ${key.substring(0, 8)}... failed. Error: ${error.message}. Trying next key.`);
+        // If a key is specifically exhausted, we just move to the next.
+        if (error.name === 'QuotaExceededError') {
+          continue;
+        }
+      }
+    }
+
+    if (!response) {
+      console.error('[OpenAI] All API keys failed.', lastError);
+      throw new Error(`All available API keys failed. Last error: ${lastError ? lastError.message : 'Unknown error'}`);
+    }
     console.log(`[${new Date().toISOString()}] [OpenAI] fetchWithRetry completed.`);
 
     // --- RESPONSE HANDLING ---

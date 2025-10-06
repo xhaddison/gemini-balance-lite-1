@@ -84,8 +84,8 @@ const modelMap = new Map([
 
 async function fetchWithTimeout(url, options, apiKey) {
   const controller = new AbortController();
-  // Vercel's hobby tier has a 10s timeout, so we must be aggressive. 5s is a safe bet.
-  const timeoutId = setTimeout(() => controller.abort(), 5000);
+  // Vercel's hobby tier has a 10s timeout. 9.5s gives a safe buffer.
+  const timeoutId = setTimeout(() => controller.abort(), 9500);
   options.headers['x-goog-api-key'] = apiKey;
   options.signal = controller.signal;
   try {
@@ -95,7 +95,11 @@ async function fetchWithTimeout(url, options, apiKey) {
   } catch (error) {
     clearTimeout(timeoutId);
     if (error.name === 'AbortError') {
-      return { status: 408, statusText: 'Request Timeout' };
+      // Return a proper Response object to maintain interface consistency
+      return new Response(JSON.stringify({ error: { message: 'Request to upstream provider timed out.' } }), {
+        status: 408,
+        headers: { 'Content-Type': 'application/json' },
+      });
     }
     throw error;
   }
@@ -135,7 +139,6 @@ export default async function handler(request) {
 
     if (response.status === 429 || response.status === 503 || response.status === 500 || response.status === 408) {
       await returnKey(key); // Return "tired" key to the back for a rest
-      console.error('[Upstream Error Body]', await response.text()); // Log the raw error
       return new Response(JSON.stringify({ error: { message: 'Service temporarily unavailable, please try again.', type: 'service_unavailable' } }), { status: 503 });
     }
 

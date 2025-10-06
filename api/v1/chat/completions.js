@@ -123,7 +123,8 @@ export default async function handler(request) {
     const { model: requestedModel, stream } = requestBody;
     const geminiRequest = convertToGeminiRequest(requestBody);
     const model = modelMap.get(requestedModel) || 'gemini-2.5-pro';
-    const geminiApiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:${stream ? 'streamGenerateContent' : 'generateContent'}`;
+    // FINAL TEST: Isolate the upstream dependency. Point to a reliable test endpoint.
+    const geminiApiUrl = `https://httpbin.org/delay/8`;
 
     const response = await fetchWithTimeout(geminiApiUrl, {
       method: 'POST',

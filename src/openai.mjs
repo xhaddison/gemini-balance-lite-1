@@ -1,5 +1,4 @@
 // src/openai.mjs (Radical Simplicity Edition)
-import fetch from 'node-fetch';
 import { getNextKey, returnKey } from './key_manager.js';
 
 function convertToGeminiRequest(openaiRequest) {

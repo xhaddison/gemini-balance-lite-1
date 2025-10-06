@@ -1,18 +1,32 @@
-# Vercel Support Ticket: Edge Function Outbound Fetch Timeout
+# Urgent: Production Serverless Function Timeout - Suspected Network Egress Issue
 
-**主题:** Vercel Edge Function Outbound Fetch Timeout to Google Gemini API
+## Project Information
 
-**问题描述:**
-我们的 Vercel Edge Function (`/api/v1/chat/completions`) 在尝试向 `https://generativelanguage.googleapis.com` 发起 `fetch` 请求时，稳定地出现 `FUNCTION_INVOCATION_TIMEOUT` 错误。
+- **Project Name**: `gemini-balance-lite`
+- **Failing Deployment URL**: `https://gemini-balance-lite-9c9lt290i-xhaddisons-projects.vercel.app`
 
-**部署 URL:** `https://gemini-balance-lite-jge8svihy-xhaddisons-projects.vercel.app`
+## Problem Description
 
-**诊断日志与证据:**
-我们的日志无可辩驳地证明，函数在 Redis 密钥成功获取后，于 `await fetch(...)` 调用向上游 Google Gemini API 发起请求的瞬间停止响应。日志从未进入 `fetch` 调用的内部逻辑，直接导致 25 秒后超时。
+1.  Our primary Serverless Function, located at `api/v1/chat/completions.js`, is consistently failing in the production environment with a `FUNCTION_INVOCATION_TIMEOUT` error.
+2.  The core logic of this function involves establishing a connection to our Upstash Redis instance. We suspect that the function is being blocked when attempting to make this outbound connection, causing it to hang until the timeout is reached.
+3.  We have attempted to mitigate this by setting the `maxDuration` for the function to 60 seconds in our `vercel.json` configuration. This change did not resolve the issue, which suggests a platform-level hard timeout or a network connectivity problem rather than a simple execution time limit.
 
-这清楚地表明问题并非出在我们的代码逻辑或 Redis 连接上，而是 Vercel Edge 环境的出站网络层。
+## Key Evidence
 
-**请求协助:**
-我们怀疑这是 Vercel Edge 环境的出站网络连接问题（可能是防火墙、DNS 解析、或路由策略），导致无法访问 `generativelanguage.googleapis.com`。
+The evidence strongly points to an issue within the Vercel execution environment:
 
-请贵团队协助调查并解决此网络连接问题。
+1.  **Failure in Vercel Environment**: Any `POST` request made to `https://gemini-balance-lite-9c9lt290i-xhaddisons-projects.vercel.app/api/v1/chat/completions` reliably reproduces the timeout error. The function logs confirm the invocation starts but never completes the Redis connection.
+
+2.  **Success in External Environment**: We have created an isolated Node.js test script (`redis_test.js`) that uses the exact same credentials and the `@upstash/redis` library. When this script is executed from a local environment, it **successfully** connects to the production Redis instance (`rested-imp-13075.upstash.io`) and receives the expected `PONG` response.
+
+## Conclusion
+
+The discrepancy in behavior between the Vercel environment and our local environment is the critical piece of evidence. Since the code, credentials, and Redis database are identical in both scenarios, the failure is almost certainly isolated to the Vercel Serverless Function's execution context.
+
+We conclude that the issue is not with our application code, credentials, or the Redis database itself. Instead, the evidence strongly suggests a problem with network egress from the Serverless Function, preventing it from accessing the Upstash Redis endpoint at `rested-imp-13075.upstash.io`.
+
+## Our Request
+
+We kindly request that the Vercel technical team investigate the network logs for this specific deployment (`gemini-balance-lite-9c9lt290i-xhaddisons-projects.vercel.app`). Please confirm if there are any outbound network policies or firewall rules that might be blocking egress traffic to the `rested-imp-13075.upstash.io` endpoint.
+
+Thank you for your urgent attention to this matter.

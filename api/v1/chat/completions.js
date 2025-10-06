@@ -5,21 +5,13 @@ import { Redis } from '@upstash/redis';
 import { v4 as uuidv4 } from 'uuid';
 
 // --- Redis Client Initialization ---
-// Initialize the client once per container instance for connection reuse.
-let redisClient;
-
-function getRedisClient() {
-  if (!redisClient) {
-    const url = process.env.UPSTASH_REDIS_REST_URL?.trim();
-    const token = process.env.UPSTASH_REDIS_REST_TOKEN?.trim();
-    if (!url || !token) {
-      // This is a server configuration error, so we throw.
-      throw new Error('Server configuration error: Redis connection credentials are not set.');
-    }
-    redisClient = new Redis({ url, token });
-  }
-  return redisClient;
-}
+// As per Upstash's recommendation for Vercel Serverless Functions, the client
+// is initialized once in the global scope. This allows connection reuse
+// across function invocations.
+const redisClient = new Redis({
+  url: process.env.UPSTASH_REDIS_REST_URL,
+  token: process.env.UPSTASH_REDIS_REST_TOKEN,
+});
 
 // --- Constants for Redis Keys ---
 const IDEMPOTENCY_KEY_PREFIX = 'idem_';
@@ -40,7 +32,7 @@ export default async function handler(request) {
       return new Response(JSON.stringify({ error: { message: 'Idempotency-Key header is required.', type: 'invalid_request_error' } }), { status: 400 });
     }
 
-    const redis = getRedisClient();
+    const redis = redisClient;
     const idemRedisKey = `${IDEMPOTENCY_KEY_PREFIX}${idempotencyKey}`;
 
     // 1. Check if we've processed this idempotency key before.

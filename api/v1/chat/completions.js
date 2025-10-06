@@ -24,7 +24,32 @@ const KEYS_QUEUE_NAME = 'keys_queue';
 
 async function getNextKey() {
   try {
-    return await getRedisClient().lpop(KEYS_QUEUE_NAME);
+    const redisClient = getRedisClient();
+    let key = await redisClient.lpop(KEYS_QUEUE_NAME);
+
+    if (!key) {
+      // Queue is empty, attempt a one-time migration from the old Set structure
+      console.log('[KeyManager] Queue empty, attempting one-time migration from Set...');
+      const oldSetKeys = await redisClient.smembers('active_keys'); // The name of the old set
+
+      if (oldSetKeys && oldSetKeys.length > 0) {
+        console.log(`[KeyManager] Found ${oldSetKeys.length} keys in old Set. Migrating...`);
+        // Use a transaction to be safe
+        const tx = redisClient.multi();
+        tx.rpush(KEYS_QUEUE_NAME, ...oldSetKeys);
+        tx.rename('active_keys', 'active_keys_migrated_at_' + Date.now()); // Rename old set to prevent re-migration
+        await tx.exec();
+
+        // Try one more time to get a key
+        key = await redisClient.lpop(KEYS_QUEUE_NAME);
+      }
+    }
+
+    if (!key) {
+        console.warn('[KeyManager] Key queue is empty even after migration attempt.');
+        return null;
+    }
+    return key;
   } catch (error) {
     console.error('[KeyManager] Failed to get next key from Redis:', error);
     return null;

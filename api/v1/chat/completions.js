@@ -135,6 +135,7 @@ export default async function handler(request) {
 
     if (response.status === 429 || response.status === 503 || response.status === 500 || response.status === 408) {
       await returnKey(key); // Return "tired" key to the back for a rest
+      console.error('[Upstream Error Body]', await response.text()); // Log the raw error
       return new Response(JSON.stringify({ error: { message: 'Service temporarily unavailable, please try again.', type: 'service_unavailable' } }), { status: 503 });
     }
 

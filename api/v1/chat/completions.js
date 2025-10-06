@@ -4,6 +4,13 @@
 import { Redis } from '@upstash/redis';
 import { v4 as uuidv4 } from 'uuid';
 
+// --- Environment Variable Validation ---
+// Ensure that the necessary environment variables for Redis are set before
+// attempting to initialize the client. This prevents cryptic startup failures.
+if (!process.env.UPSTASH_REDIS_REST_URL || !process.env.UPSTASH_REDIS_REST_TOKEN) {
+  throw new Error('FATAL: Server configuration error. UPSTASH_REDIS_REST_URL and/or UPSTASH_REDIS_REST_TOKEN environment variables are not set.');
+}
+
 // --- Redis Client Initialization ---
 // As per Upstash's recommendation for Vercel Serverless Functions, the client
 // is initialized once in the global scope. This allows connection reuse

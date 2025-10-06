@@ -6,15 +6,16 @@ let redis;
 // --- Redis Client Singleton ---
 function getRedisClient() {
   if (!redis) {
+    if (!process.env.UPSTASH_REDIS_REST_URL || !process.env.UPSTASH_REDIS_REST_TOKEN) {
+      console.error('[CRITICAL] Upstash Redis environment variables are missing. Please set UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN.');
+      throw new Error('Upstash Redis credentials are not configured in environment variables.');
+    }
     try {
       // In Vercel Edge Functions, environment variables provided by integrations
       // like Upstash are accessible via the standard `process.env` object.
       // This is the official, documented method. Using `Redis.fromEnv()` previously
       // failed because it may not be compatible with the Vercel Edge Runtime's
       // environment variable handling.
-      if (!process.env.UPSTASH_REDIS_REST_URL || !process.env.UPSTASH_REDIS_REST_TOKEN) {
-        throw new Error('Upstash Redis environment variables are not configured.');
-      }
       redis = new Redis({
         url: process.env.UPSTASH_REDIS_REST_URL,
         token: process.env.UPSTASH_REDIS_REST_TOKEN,

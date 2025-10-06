@@ -1,7 +1,6 @@
-import { AdaptiveTimeout, ErrorTracker, calculateRetryDelay } from './utils.js';
-import { getRandomKey, getAllKeys, validateKey } from './key_manager.js';
+import { ErrorTracker, calculateRetryDelay } from './utils.js';
+import { getAllKeys, validateKey } from './key_manager.js';
 
-const adaptiveTimeout = new AdaptiveTimeout();
 const errorTracker = new ErrorTracker();
 
 const MAX_RETRIES = 5;
@@ -183,39 +182,40 @@ const modelMap = new Map([
 ]);
 
 
-export async function OpenAI(request, ctx, requestBody) {
-
+export async function OpenAI(request, ctx) {
   console.log(`[${new Date().toISOString()}] --- OpenAI START ---`);
   try {
-    // --- AUTHORIZATION FIX START ---
-    const authHeader = request.headers.get('Authorization');
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-        return new Response(JSON.stringify({ error: { message: 'Authorization header is missing or invalid.', type: 'authentication_error' } }), { status: 401 });
-    }
-    const clientKey = authHeader.substring(7);
-
-    const isKeyValid = await validateKey(clientKey);
-    if (!isKeyValid) {
-        return new Response(JSON.stringify({ error: { message: 'Invalid API Key.', type: 'authentication_error' } }), { status: 401 });
-    }
-    // --- AUTHORIZATION FIX END ---
-
-
+    const requestBody = await request.json();
     const { messages, model: requestedModel, stream } = requestBody;
 
-    if (!messages || !Array.isArray(messages)) {
-      console.error("[OpenAI] Invalid request body: 'messages' is missing or not an array.", requestBody);
-      return new Response(JSON.stringify({ error: { message: "Invalid request body: 'messages' must be an array.", type: 'invalid_request_error' } }), { status: 400 });
+    // 1. User Authorization
+    const authHeader = request.headers.get('Authorization');
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return new Response(JSON.stringify({ error: { message: 'Authorization header is missing or invalid.', type: 'authentication_error' } }), { status: 401 });
     }
+    const userKey = authHeader.substring(7);
+    const isUserKeyValid = await validateKey(userKey);
+    if (!isUserKeyValid) {
+      return new Response(JSON.stringify({ error: { message: 'Invalid API key provided.', type: 'authentication_error' } }), { status: 401 });
+    }
+
+    // 2. Key Rotation
+    const allKeys = await getAllKeys();
+    function shuffle(array) {
+      for (let i = array.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [array[i], array[j]] = [array[j], array[i]];
+      }
+    }
+    shuffle(allKeys);
 
     const geminiRequest = convertToGeminiRequest(requestBody);
 
-    // Dynamic model mapping and fallback logic
     let model;
     if (requestedModel && modelMap.has(requestedModel)) {
       model = modelMap.get(requestedModel);
     } else {
-      model = 'gemini-2.5-pro'; // CRITICAL FIX: Fallback to a known valid default model based on ListModels API.
+      model = 'gemini-2.5-pro';
       if (requestedModel) {
         console.warn(`[OpenAI] Model mapping not found for requested model: '${requestedModel}'. Falling back to '${model}'.`);
       }
@@ -223,32 +223,45 @@ export async function OpenAI(request, ctx, requestBody) {
 
     const geminiApiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:${stream ? 'streamGenerateContent' : 'generateContent'}`;
 
+    let response;
+    let lastError = null;
     console.log(`[${new Date().toISOString()}] [OpenAI] Forwarding request to model: ${model}, URL: ${geminiApiUrl}`);
-    console.log(`[${new Date().toISOString()}] [OpenAI] About to call fetchWithRetry.`);
-    const response = await fetchWithRetry(geminiApiUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(geminiRequest),
-    }, clientKey); // Pass the validated client key
+
+    for (const key of allKeys) {
+      try {
+        console.log(`[${new Date().toISOString()}] [OpenAI] Attempting to use key starting with: ${key.substring(0, 8)}...`);
+        response = await fetchWithRetry(geminiApiUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(geminiRequest),
+        }, key);
+        console.log(`[${new Date().toISOString()}] [OpenAI] fetchWithRetry succeeded with a key.`);
+        break;
+      } catch (error) {
+        lastError = error;
+        console.error(`[OpenAI] Key starting with ${key.substring(0, 8)}... failed. Error: ${error.message}. Trying next key.`);
+        if (error.name === 'QuotaExceededError') {
+          continue;
+        }
+      }
+    }
+
+    if (!response) {
+      console.error('[OpenAI] All API keys failed.', lastError);
+      throw new Error(`All available API keys failed. Last error: ${lastError ? lastError.message : 'Unknown error'}`);
+    }
     console.log(`[${new Date().toISOString()}] [OpenAI] fetchWithRetry completed.`);
 
     // --- RESPONSE HANDLING ---
     console.log(`[${new Date().toISOString()}] [OpenAI] Response received. Handling stream: ${stream}`);
     if (stream) {
-        // For streaming responses, we need to decouple the streams.
-        // We pipe the original response body through a new TransformStream.
-        // This creates a new stream that is fully controlled by our application,
-        // preventing the 'terminatedTypeError' that occurs when the original
-        // fetch connection is closed prematurely by the environment.
         const transformStream = new TransformStream();
         response.body.pipeTo(transformStream.writable);
-
         return new Response(transformStream.readable, {
             status: response.status,
             headers: response.headers
         });
     } else {
-        // For non-streaming, we can safely buffer the entire response.
         const responseBody = await response.json();
         return new Response(JSON.stringify(responseBody), {
             status: response.status,

@@ -34,7 +34,7 @@ export default async function handler(request) {
     }
 
     // Vercel normalizes header names to lowercase.
-    const idempotencyKey = request.headers['idempotency-key'];
+    const idempotencyKey = request.headers.get('idempotency-key');
     if (!idempotencyKey) {
       return new Response(JSON.stringify({ error: { message: 'Idempotency-Key header is required.', type: 'invalid_request_error' } }), { status: 400 });
     }

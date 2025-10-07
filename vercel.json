@@ -18,5 +18,11 @@
       "source": "/v1beta/(.*)",
       "destination": "/api/v1/chat/completions.js"
     }
+  ],
+  "crons": [
+    {
+      "path": "/api/cron/health-check",
+      "schedule": "0 0 * * *"
+    }
   ]
 }

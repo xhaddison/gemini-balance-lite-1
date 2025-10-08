@@ -8,148 +8,178 @@ class NoAvailableKeysError extends Error {
   }
 }
 
-// Custom error for non-retriable client-side errors
-class NonRetriableError extends Error {
-  constructor(message = 'Request error based on HTTP status code. Do not retry.') {
-    super(message);
-    this.name = 'NonRetriableError';
-  }
-}
-
 class KeyManager {
   constructor() {
+    this.redis = null;
+    console.log(`[${new Date().toISOString()}] [INFO] KeyManager instance created. Call initialize() to connect.`);
+  }
+
+  async initialize() {
     if (!process.env.UPSTASH_REDIS_REST_URL || !process.env.UPSTASH_REDIS_REST_TOKEN) {
-        throw new Error('UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN environment variables must be set.');
+      throw new Error('UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN environment variables must be set.');
     }
     this.redis = new Redis({
-      url: process.env.UPSTASH_REDIS_REST_URL,
-      token: process.env.UPSTASH_REDIS_REST_TOKEN,
+      url: process.env.UPSTASH_REDIS_REST_URL.trim(),
+      token: process.env.UPSTASH_REDIS_REST_TOKEN.trim(),
     });
-    this.lastUsedIndexKey = 'key_manager:last_used_index';
-    console.log(`[${new Date().toISOString()}] [DIAG] KeyManager initialized.`);
+    console.log(`[${new Date().toISOString()}] [INFO] KeyManager initialized and connected to Redis.`);
   }
 
-  // The connect and disconnect methods are no longer needed with the HTTP-based Upstash SDK.
-
   /**
-   * Retrieves an available API key using a round-robin strategy and locks it.
-   * @returns {Promise<string>} The selected API key.
-   * @throws {NoAvailableKeysError} If no keys are available.
+   * Retrieves the best available API key based on health score and remaining quota.
+   * @returns {Promise<object>} The best available key object.
+   * @throws {NoAvailableKeysError} If no keys are available after filtering.
    */
-  async getKey() {
-    console.log(`[${new Date().toISOString()}] [DIAG] PRE: Starting getKey.`);
+  async getBestKey() {
+    console.log(`[${new Date().toISOString()}] [INFO] Starting getBestKey.`);
 
-    let cursor = 0;
-    const availableKeys = [];
-    let scanCount = 0;
-    do {
-      console.log(`[${new Date().toISOString()}] [DIAG] PRE: Executing redis.scan with cursor: ${cursor}.`);
-      const [nextCursor, keys] = await this.redis.scan(cursor, { match: 'key:*:available', count: 100 });
-      console.log(`[${new Date().toISOString()}] [DIAG] POST: redis.scan ${scanCount} completed. Found ${keys.length} keys. Next cursor: ${nextCursor}.`);
-      cursor = nextCursor;
-      availableKeys.push(...keys);
-      scanCount++;
-    } while (cursor !== 0);
+    console.log(`[${new Date().toISOString()}] [DEBUG] Before redis.scan.`);
+    // 1. Fetch all keys from Redis
+    const allKeyHashes = await this.redis.scan(0, { match: 'key:*', count: 1000 });
+    console.log(`[${new Date().toISOString()}] [DEBUG] After redis.scan. Found ${allKeyHashes[1].length} key patterns.`);
+    const keys = allKeyHashes[1];
+    if (keys.length === 0) {
+      throw new NoAvailableKeysError('Key pool is completely empty.');
+    }
 
-    const availableApiKeys = availableKeys.map(key => key.split(':')[1]);
-    console.log(`[${new Date().toISOString()}] [DIAG] Total available keys found: ${availableApiKeys.length}.`);
+    const pipeline = this.redis.pipeline();
+    // Inefficiently getting ALL fields. Let's get only what we need.
+    keys.forEach(key => pipeline.hmget(key, 'apiKey', 'status', 'lastUsed', 'health_score', 'quota_remaining'));
+    const keyObjectsRaw = await pipeline.exec();
 
-    if (availableApiKeys.length === 0) {
-      console.log(`[${new Date().toISOString()}] [DIAG] No available keys. Checking if pool is empty.`);
-      console.log(`[${new Date().toISOString()}] [DIAG] PRE: Executing redis.scan to check for any keys.`);
-      const allKeysResult = await this.redis.scan(0, { match: 'key:*', count: 1 });
-      console.log(`[${new Date().toISOString()}] [DIAG] POST: redis.scan for any keys completed. Found ${allKeysResult[1].length} keys.`);
-      if (allKeysResult[1].length === 0) {
-          console.error(`[${new Date().toISOString()}] [DIAG] CRITICAL: Key pool is completely empty.`);
-          throw new NoAvailableKeysError('Key pool is completely empty. Please add keys.');
+    const keyObjects = keys.map((keyName, index) => {
+        const raw = keyObjectsRaw[index];
+        if (!raw || raw.length === 0) return null;
+        // Reconstruct from hmget array result. The order MUST match the hmget call.
+        return {
+            apiKey: raw[0],
+            status: raw[1],
+            lastUsed: raw[2],
+            health_score: raw[3],
+            quota_remaining: raw[4],
+        };
+    });
+
+    // 2. Filter keys
+    const now = Date.now();
+    const cooldownPeriod = 1000; // 1 second cooldown
+    const availableKeys = keyObjects.filter(key => {
+        if (!key) return false;
+        const lastUsed = key.lastUsed ? parseInt(key.lastUsed, 10) : 0;
+        return key.status === 'available' && (now - lastUsed > cooldownPeriod);
+    });
+
+    if (availableKeys.length === 0) {
+      throw new NoAvailableKeysError('All keys are in_use, disabled, or in cooldown.');
+    }
+
+    // 3. Sort keys
+    availableKeys.sort((a, b) => {
+      const scoreA = parseFloat(a.health_score || 0);
+      const scoreB = parseFloat(b.health_score || 0);
+      if (scoreA !== scoreB) {
+        return scoreB - scoreA; // Sort by health_score DESC
       }
-      console.error(`[${new Date().toISOString()}] [DIAG] CRITICAL: All keys are in_use or disabled.`);
-      throw new NoAvailableKeysError('All keys are currently in_use or disabled.');
-    }
-
-    availableApiKeys.sort();
-
-    console.log(`[${new Date().toISOString()}] [DIAG] PRE: Getting last used index from Redis.`);
-    const lastIndex = await this.redis.get(this.lastUsedIndexKey) || -1;
-    console.log(`[${new Date().toISOString()}] [DIAG] POST: Got last used index: ${lastIndex}.`);
-
-    const nextIndex = (Number(lastIndex) + 1) % availableApiKeys.length;
-    const selectedApiKey = availableApiKeys[nextIndex];
-    const keyHash = `key:${selectedApiKey}`;
-    console.log(`[${new Date().toISOString()}] [DIAG] Selected key: ${selectedApiKey.substring(0, 4)}... at index ${nextIndex}.`);
-
-    console.log(`[${new Date().toISOString()}] [DIAG] PRE: Starting pipeline to lock key.`);
-    const p = this.redis.pipeline();
-    p.hset(keyHash, { status: 'in_use' });
-    p.set(this.lastUsedIndexKey, nextIndex);
-    p.rename(`${keyHash}:available`, keyHash);
-
-    await p.exec();
-    console.log(`[${new Date().toISOString()}] [DIAG] POST: Pipeline executed. Key locked.`);
-
-    console.log(`[${new Date().toISOString()}] [DIAG] getKey finished.`);
-    return selectedApiKey;
-  }
-
-  /**
-   * Handles a successful API call, making the key available again.
-   * @param {string} apiKey The API key that was used successfully.
-   */
-  async handleSuccess(apiKey) {
-    const keyHash = `key:${apiKey}`;
-    console.log(`[${new Date().toISOString()}] [DIAG] PRE: handleSuccess for key ${apiKey.substring(0, 4)}...`);
-    const p = this.redis.pipeline();
-    p.hset(keyHash, { status: 'available', lastUsed: new Date().toISOString() });
-    p.hincrby(keyHash, 'totalUses', 1);
-    p.rename(keyHash, `${keyHash}:available`);
-    await p.exec();
-    console.log(`[${new Date().toISOString()}] [DIAG] POST: handleSuccess for key ${apiKey.substring(0, 4)}... completed.`);
-  }
-
-  /**
-   * Handles a failed API call with tiered circuit-breaking logic.
-   * @param {string} apiKey The API key that failed.
-   * @param {number} httpStatusCode The HTTP status code from the failed call.
-   * @throws {NonRetriableError} for specific non-retriable status codes.
-   */
-  async handleFailure(apiKey, httpStatusCode) {
-    const statusCode = parseInt(httpStatusCode, 10);
-    const keyHash = `key:${apiKey}`;
-    let reason;
-    console.log(`[${new Date().toISOString()}] [DIAG] PRE: handleFailure for key ${apiKey.substring(0, 4)}... with status ${statusCode}.`);
-
-    // Determine reason based on status code
-    if ([400, 404, 422].includes(statusCode)) {
-      reason = `client_error_${statusCode}`;
-    } else if ([401, 403].includes(statusCode)) {
-      reason = 'invalid_auth';
-    } else if (statusCode === 429) {
-      reason = 'quota_exceeded';
-    } else if (statusCode >= 500 && statusCode < 600) {
-      reason = 'server_error';
-    } else {
-       reason = `unknown_error_${statusCode}`;
-    }
-
-    // Common failure handling for disabling a key
-    const p = this.redis.pipeline();
-    p.hset(keyHash, {
-        status: 'disabled',
-        reason: reason,
-        lastFailure: new Date().toISOString()
+      const quotaA = parseInt(a.quota_remaining || 0, 10);
+      const quotaB = parseInt(b.quota_remaining || 0, 10);
+      return quotaB - quotaA; // Then by quota_remaining DESC
     });
-    p.hincrby(keyHash, 'totalFailures', 1);
-    // Ensure it is not in available state by renaming
-    p.rename(keyHash, `${keyHash}:disabled`);
-    await p.exec();
-    console.log(`[${new Date().toISOString()}] [DIAG] POST: handleFailure for key ${apiKey.substring(0, 4)}... completed. Reason: ${reason}.`);
+
+    // 4. Select the best key
+    const bestKey = availableKeys[0];
+    console.log(`[${new Date().toISOString()}] [INFO] Selected best key: ${bestKey.apiKey.substring(0, 4)}...`);
+
+    return bestKey;
+  }
+
+  /**
+   * Updates a key's status and metrics after an API call.
+   * @param {string} apiKey The API key to update.
+   * @param {boolean} success Whether the API call was successful.
+   * @param {number} httpStatusCode The HTTP status code from the API call.
+   * @param {object} quotaInfo Quota information from response headers.
+   */
+  async updateKey(apiKey, success, httpStatusCode, quotaInfo = {}) {
+    const keyHash = `key:${apiKey}`;
+    const key = await this.redis.hgetall(keyHash);
+    if (!key) {
+      console.error(`[${new Date().toISOString()}] [ERROR] Key not found for update: ${apiKey}`);
+      throw new Error(`Attempted to update a non-existent key: ${apiKey}`);
+    }
+
+    let current_score = parseFloat(key.health_score) || 1.0;
+    let new_score;
+
+    const updateData = {};
+
+    if (success) {
+      new_score = current_score + 0.05 * (1 - current_score);
+      updateData.totalUses = (parseInt(key.totalUses, 10) || 0) + 1;
+      // START of change
+      if (quotaInfo && typeof quotaInfo.remaining !== 'undefined') {
+          updateData.quota_remaining = quotaInfo.remaining;
+      }
+      if (quotaInfo && quotaInfo.resetTime) {
+          updateData.quota_reset_time = quotaInfo.resetTime;
+      }
+      // END of change
+    } else {
+      new_score = current_score * 0.75;
+      updateData.totalFailures = (parseInt(key.totalFailures, 10) || 0) + 1;
+      updateData.lastFailure = new Date().toISOString();
+
+      const statusCode = parseInt(httpStatusCode, 10);
+      if ([401, 403].includes(statusCode)) {
+        updateData.status = 'disabled';
+        updateData.reason = 'invalid_auth';
+      } else if (statusCode === 429) {
+        updateData.status = 'disabled';
+        updateData.reason = 'quota_exceeded';
+      } else if (statusCode >= 500 && statusCode < 600) {
+        // For server errors, we just lower the score but don't disable immediately
+        updateData.reason = 'server_error';
+        updateData.status = 'disabled';
+      }
+    }
+
+    updateData.health_score = new_score.toFixed(4);
+
+    const totalUses = parseInt(updateData.totalUses || key.totalUses, 10) || 0;
+    const totalFailures = parseInt(updateData.totalFailures || key.totalFailures, 10) || 0;
+    if (totalUses > 0) {
+        updateData.error_rate = (totalFailures / totalUses).toFixed(4);
+    }
+
+    await this.redis.hset(keyHash, updateData);
+    console.log(`[${new Date().toISOString()}] [INFO] Updated key ${apiKey.substring(0, 4)}... Success: ${success}, New Score: ${updateData.health_score}`);
+  }
+
+  /**
+   * Atomically locks a key by setting its status to 'in_use'.
+   * @param {string} apiKey The API key to lock.
+   * @returns {Promise<boolean>} True if locked successfully, false otherwise.
+   */
+  async lockKey(apiKey) {
+    const keyHash = `key:${apiKey}`;
+    const result = await this.redis.hset(keyHash, { status: 'in_use', lastUsed: new Date().toISOString() });
+    console.log(`[${new Date().toISOString()}] [INFO] Locked key: ${apiKey.substring(0, 4)}...`);
+    return result > 0;
+  }
+
+  /**
+   * Atomically releases a key by setting its status to 'available'.
+   * @param {string} apiKey The API key to release.
+   * @returns {Promise<boolean>} True if released successfully, false otherwise.
+   */
+  async releaseKey(apiKey) {
+    const keyHash = `key:${apiKey}`;
+    const result = await this.redis.hset(keyHash, { status: 'available' });
+    console.log(`[${new Date().toISOString()}] [INFO] Released key: ${apiKey.substring(0, 4)}...`);
+    return result > 0;
   }
 }
-
-// No longer exporting a singleton instance
 
 export {
     KeyManager,
     NoAvailableKeysError,
-    NonRetriableError
 };

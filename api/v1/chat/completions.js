@@ -1,115 +1,127 @@
-import { KeyManager, NoAvailableKeysError, NonRetriableError } from '../../../src/key_manager.js';
+import { KeyManager, NoAvailableKeysError } from '../../../src/key_manager.js';
 
-let keyManager; // Declare outside the handler to act as a singleton across invocations in the same warm container
+// Top-level, blocking, pre-flight checks and initialization.
+// This code runs once during the Vercel function's cold start.
+const keyManagerPromise = (async () => {
+    // 1. Enforce startup environment variable checks.
+    if (!process.env.UPSTASH_REDIS_REST_URL || !process.env.UPSTASH_REDIS_REST_TOKEN) {
+        console.error(`[${new Date().toISOString()}] [CRITICAL] Missing required Redis environment variables. Function will not start.`);
+        throw new Error('Configuration Error: Missing Redis credentials. The function cannot start.');
+    }
+
+    // 2. Initialize KeyManager.
+    console.log(`[${new Date().toISOString()}] [INFO] Initializing KeyManager instance...`);
+    const manager = new KeyManager();
+    await manager.initialize();
+    console.log(`[${new Date().toISOString()}] [INFO] KeyManager initialized successfully.`);
+    return manager;
+})();
+
+// Helper function for exponential backoff
+const delay = (duration) => new Promise(resolve => setTimeout(resolve, duration));
 
 const handler = async (req) => {
-    if (!keyManager) {
-        console.log(`[${new Date().toISOString()}] [DIAG] PRE: Initializing KeyManager instance for the first time.`);
-        try {
-            keyManager = new KeyManager();
-            console.log(`[${new Date().toISOString()}] [DIAG] POST: KeyManager instance successfully initialized.`);
-        } catch (error) {
-            console.error(`[${new Date().toISOString()}] [DIAG] CRITICAL: Failed to initialize KeyManager instance.`, error);
-            return new Response('Service Unavailable: Failed to initialize core component.', { status: 503 });
-        }
+    let keyManager;
+    try {
+        keyManager = await keyManagerPromise;
+    } catch (error) {
+        console.error(`[${new Date().toISOString()}] [CRITICAL] KeyManager failed to initialize during cold start.`, error);
+        // This response will be served for all subsequent requests until the function instance is recycled.
+        return new Response('Service Unavailable: Core component failed to initialize.', { status: 503 });
     }
-    console.log(`[${new Date().toISOString()}] [DIAG] Request received.`);
 
-    // 1. 请求验证
     if (req.method === 'GET') {
-        console.log(`[${new Date().toISOString()}] [DIAG] Responding to GET request.`);
-        return new Response('Canary is alive: version-final-debug', { status: 200 });
+        return new Response('API Router is alive.', { status: 200 });
     }
     if (req.method !== 'POST') {
-        console.log(`[${new Date().toISOString()}] [DIAG] Method not allowed: ${req.method}.`);
         return new Response('Method Not Allowed', { status: 405 });
     }
 
-    const authHeader = req.headers['authorization'];
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-        console.log(`[${new Date().toISOString()}] [DIAG] Unauthorized: Missing or invalid Authorization header.`);
-        return new Response('Unauthorized', { status: 401 });
-    }
+    const body = await req.json();
+    const maxRetries = 5;
+    let lastError = null;
 
-    // 我们仅验证Header存在，不验证token本身，因为这是一个代理
-    const clientToken = authHeader.substring(7);
-
-    const model = 'gemini-pro'; // Temporarily hardcode model, as we can't read body yet
-    const targetUrl = `https://generativelen/v1beta/models/${model}:generateContent`;
-
-    // 2. 健壮的密钥处理与重试循环
-    const maxRetries = 10; // 设置一个最大重试次数以防无限循环
-    for (let i = 0; i < maxRetries; i++) {
+    for (let attempt = 0; attempt < maxRetries; attempt++) {
         let apiKey = null;
         try {
-            console.log(`[${new Date().toISOString()}] [DIAG] PRE: Attempt ${i + 1} calling keyManager.getKey().`);
-            apiKey = await keyManager.getKey();
-            console.log(`[${new Date().toISOString()}] [DIAG] POST: Attempt ${i + 1} keyManager.getKey() returned key ${apiKey ? apiKey.substring(0, 4) + '...' : 'null'}.`);
+            const keyObject = await keyManager.getBestKey();
+            apiKey = keyObject.apiKey;
 
-            // 2.2 外部调用
-            console.log(`[${new Date().toISOString()}] [DIAG] PRE: Attempt ${i + 1} making fetch call.`);
+            await keyManager.lockKey(apiKey);
+
+            const model = 'gemini-pro';
+            const targetUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
+
             const response = await fetch(`${targetUrl}?key=${apiKey}`, {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: req.body,
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body),
             });
-            console.log(`[${new Date().toISOString()}] [DIAG] POST: Attempt ${i + 1} fetch call completed. Status: ${response.status}.`);
 
-
-            // 2.3 成功处理
             if (response.ok) {
-                console.log(`[${new Date().toISOString()}] [DIAG] PRE: Attempt ${i + 1} calling keyManager.handleSuccess().`);
-                await keyManager.handleSuccess(apiKey);
-                console.log(`[${new Date().toISOString()}] [DIAG] POST: Attempt ${i + 1} keyManager.handleSuccess() completed.`);
-                // 直接将 Gemini API 的完整响应返回给客户端
+                // Success
+                const quotaRemaining = response.headers.get('x-ratelimit-remaining');
+                const quotaReset = response.headers.get('x-ratelimit-reset');
+                const quotaInfo = {
+                    remaining: quotaRemaining ? parseInt(quotaRemaining, 10) : undefined,
+                    resetTime: quotaReset,
+                };
+                await keyManager.updateKey(apiKey, true, response.status, quotaInfo);
+                await keyManager.releaseKey(apiKey);
                 return new Response(response.body, {
                     status: response.status,
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
+                    headers: { 'Content-Type': 'application/json' },
                 });
             }
 
-            // 2.4 失败处理
+            // Handle non-5xx failures
             const statusCode = response.status;
-            console.error(`[${new Date().toISOString()}] [DIAG] Attempt ${i + 1} failed with key ${apiKey.substring(0, 4)}...: Status ${statusCode}`);
-            console.log(`[${new Date().toISOString()}] [DIAG] PRE: Attempt ${i + 1} calling keyManager.handleFailure().`);
-            await keyManager.handleFailure(apiKey, statusCode);
-            console.log(`[${new Date().toISOString()}] [DIAG] POST: Attempt ${i + 1} keyManager.handleFailure() completed.`);
-            // 继续下一次循环以重试
+            const responseBody = await response.text(); // Consume the response body to prevent hanging
+
+            // Key-specific failures that should trigger a retry with the next key
+            if ([401, 403, 429].includes(statusCode)) {
+                const reason = statusCode === 429 ? 'quota exceeded' : 'invalid auth';
+                console.warn(`[${new Date().toISOString()}] [WARN] Key failure (${reason}) for ${apiKey.substring(0, 4)}... (Status ${statusCode}). Disabling and retrying.`);
+                await keyManager.updateKey(apiKey, false, statusCode);
+                continue; // Immediately try the next key
+            }
+
+            // Other client-side errors that are not key-specific and should not be retried
+            if (statusCode < 500) {
+                console.error(`[${new Date().toISOString()}] [ERROR] Non-retriable upstream error for key ${apiKey.substring(0, 4)}...: Status ${statusCode}`);
+                // We still update the key to penalize it slightly, in case it was a factor.
+                await keyManager.updateKey(apiKey, false, statusCode);
+                return new Response(`Upstream error: ${statusCode}. Body: ${responseBody}`, { status: 502 });
+            }
+
+            // It's a 5xx error, so we retry
+            console.warn(`[${new Date().toISOString()}] [WARN] Retriable server error for key ${apiKey.substring(0, 4)}...: Status ${statusCode}. Attempt ${attempt + 1}/${maxRetries}.`);
+            await keyManager.updateKey(apiKey, false, statusCode);
+            // await keyManager.releaseKey(apiKey); // DO NOT release, let the key be disabled.
+
+            // Exponential backoff with jitter
+            const backoffTime = Math.pow(2, attempt) * 100 + Math.random() * 100;
+            await delay(backoffTime);
 
         } catch (error) {
-            // 2.5 错误处理
-            console.error(`[${new Date().toISOString()}] [DIAG] CRITICAL: Raw error caught in handler loop:`, error);
-            if (apiKey && !(error instanceof NoAvailableKeysError) && !(error instanceof NonRetriableError)) {
-                 // 如果是 fetch 网络错误等，也需要处理密钥
-                 // 这里的状态码 500 是一个内部代码，代表“未知网络错误”，可触发重试
-                console.log(`[${new Date().toISOString()}] [DIAG] PRE: Attempt ${i + 1} calling keyManager.handleFailure() for caught error.`);
-                await keyManager.handleFailure(apiKey, 500);
-                console.log(`[${new Date().toISOString()}] [DIAG] POST: Attempt ${i + 1} keyManager.handleFailure() for caught error completed.`);
+            console.error(`[${new Date().toISOString()}] [CRITICAL] Error in handler loop attempt ${attempt + 1}:`, error);
+            lastError = error;
+
+            if (apiKey) {
+                // On any unexpected error, penalize the key but do not disable it immediately,
+                // as the issue might be with our router or the request itself.
+                console.warn(`[${new Date().toISOString()}] [WARN] Unexpected error with key ${apiKey.substring(0, 4)}... Penalizing.`, error.message);
+                await keyManager.updateKey(apiKey, false, 499); // Use 499 as a client-side error code
             }
 
             if (error instanceof NoAvailableKeysError) {
-                // 密钥池已耗尽
-                console.error(`[${new Date().toISOString()}] [DIAG] All API keys are exhausted.`);
-                return new Response('Service Unavailable: No available API keys.', { status: 503 });
+                return new Response('Service Unavailable: All keys are currently busy or disabled.', { status: 503 });
             }
-
-            if (error instanceof NonRetriableError) {
-                // 不可重试的错误 (例如，400 Bad Request)
-                console.error(`[${new Date().toISOString()}] [DIAG] Non-retriable error encountered.`, error.message);
-                return new Response(`Bad Request: ${error.message}`, { status: 400 });
-            }
-
-            // 其他未知错误，记录日志但继续重试
-            console.error(`[${new Date().toISOString()}] [DIAG] An unexpected error occurred during attempt ${i + 1}:`, error);
+            // For other errors, we continue the loop to try and get another key
         }
     }
 
-    // 如果循环结束仍未成功，返回 503
-    console.log(`[${new Date().toISOString()}] [DIAG] Max retries exceeded.`);
+    console.error(`[${new Date().toISOString()}] [CRITICAL] Max retries exceeded. Last error:`, lastError);
     return new Response('Service Unavailable: Max retries exceeded.', { status: 503 });
 };
 

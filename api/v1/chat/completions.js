@@ -71,7 +71,8 @@ const handler = async (req) => {
                         resetTime: quotaReset,
                     };
                     await keyManager.updateKey(apiKey, true, response.status, quotaInfo);
-                    // On success, we return immediately. The key is released in the finally block.
+                    // On success, we release the key and return immediately.
+                    await keyManager.releaseKey(apiKey);
                     return new Response(response.body, {
                         status: response.status,
                         headers: { 'Content-Type': 'application/json' },
@@ -125,7 +126,6 @@ const handler = async (req) => {
                 // On any other unexpected error, penalize the key.
                 console.warn(`[${new Date().toISOString()}] [WARN] Unexpected error with key ${apiKey.substring(0, 4)}... Penalizing.`, error.message);
                 await keyManager.updateKey(apiKey, false, 499); // Use 499 as a client-side error code
-                continue;
             }
         } catch (error) {
             // This outer catch handles errors from getBestKey or lockKey

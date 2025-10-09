@@ -1,4 +1,6 @@
 import { Redis } from '@upstash/redis';
+import fs from 'fs';
+import path from 'path';
 
 // Custom error for when no keys are available
 class NoAvailableKeysError extends Error {
@@ -11,6 +13,7 @@ class NoAvailableKeysError extends Error {
 class KeyManager {
   constructor() {
     this.redis = null;
+    this.updateKeyScriptSha = null;
     console.log(`[${new Date().toISOString()}] [INFO] KeyManager instance created. Call initialize() to connect.`);
   }
 
@@ -22,7 +25,18 @@ class KeyManager {
       url: process.env.UPSTASH_REDIS_REST_URL.trim(),
       token: process.env.UPSTASH_REDIS_REST_TOKEN.trim(),
     });
-    console.log(`[${new Date().toISOString()}] [INFO] KeyManager initialized and connected to Redis.`);
+    console.log(`[${new Date().toISOString()}] [INFO] KeyManager connected to Redis. Loading Lua script...`);
+
+    // Load the Lua script for atomic key updates
+    try {
+      const scriptPath = path.join(process.cwd(), 'scripts', 'redis', 'update_key.lua');
+      const script = fs.readFileSync(scriptPath, 'utf8');
+      this.updateKeyScriptSha = await this.redis.scriptLoad(script);
+      console.log(`[${new Date().toISOString()}] [INFO] Lua script 'update_key.lua' loaded successfully. SHA: ${this.updateKeyScriptSha}`);
+    } catch (error) {
+      console.error(`[${new Date().toISOString()}] [FATAL] Failed to load 'update_key.lua' script. KeyManager cannot operate.`, error);
+      throw new Error(`Failed to load Redis Lua script: ${error.message}`);
+    }
   }
 
   /**
@@ -101,57 +115,25 @@ class KeyManager {
    */
   async updateKey(apiKey, success, httpStatusCode, quotaInfo = {}) {
     const keyHash = `key:${apiKey}`;
-    const key = await this.redis.hgetall(keyHash);
-    if (!key) {
-      console.error(`[${new Date().toISOString()}] [ERROR] Key not found for update: ${apiKey}`);
-      throw new Error(`Attempted to update a non-existent key: ${apiKey}`);
+    try {
+      const args = [
+        String(success),
+        String(httpStatusCode),
+        quotaInfo.remaining !== undefined ? String(quotaInfo.remaining) : '',
+        quotaInfo.resetTime || '',
+        new Date().toISOString(),
+      ];
+
+      // Atomically update the key using the pre-loaded Lua script
+      await this.redis.evalsha(this.updateKeyScriptSha, [keyHash], args);
+
+      console.log(`[${new Date().toISOString()}] [INFO] Updated key ${apiKey.substring(0, 4)}... via Lua script. Success: ${success}`);
+    } catch (error) {
+      console.error(`[${new Date().toISOString()}] [ERROR] Failed to update key ${apiKey} using Lua script.`, error);
+      // Fallback or re-throw, depending on desired robustness.
+      // For now, re-throwing to make the caller aware.
+      throw new Error(`Lua script execution failed for key ${apiKey}: ${error.message}`);
     }
-
-    let current_score = parseFloat(key.health_score) || 1.0;
-    let new_score;
-
-    const updateData = {};
-
-    if (success) {
-      new_score = current_score + 0.05 * (1 - current_score);
-      updateData.totalUses = (parseInt(key.totalUses, 10) || 0) + 1;
-      // START of change
-      if (quotaInfo && typeof quotaInfo.remaining !== 'undefined') {
-          updateData.quota_remaining = quotaInfo.remaining;
-      }
-      if (quotaInfo && quotaInfo.resetTime) {
-          updateData.quota_reset_time = quotaInfo.resetTime;
-      }
-      // END of change
-    } else {
-      new_score = current_score * 0.75;
-      updateData.totalFailures = (parseInt(key.totalFailures, 10) || 0) + 1;
-      updateData.lastFailure = new Date().toISOString();
-
-      const statusCode = parseInt(httpStatusCode, 10);
-      if ([401, 403].includes(statusCode)) {
-        updateData.status = 'disabled';
-        updateData.reason = 'invalid_auth';
-      } else if (statusCode === 429) {
-        updateData.status = 'disabled';
-        updateData.reason = 'quota_exceeded';
-      } else if (statusCode >= 500 && statusCode < 600) {
-        // For server errors, we just lower the score but don't disable immediately
-        updateData.reason = 'server_error';
-        updateData.status = 'disabled';
-      }
-    }
-
-    updateData.health_score = new_score.toFixed(4);
-
-    const totalUses = parseInt(updateData.totalUses || key.totalUses, 10) || 0;
-    const totalFailures = parseInt(updateData.totalFailures || key.totalFailures, 10) || 0;
-    if (totalUses > 0) {
-        updateData.error_rate = (totalFailures / totalUses).toFixed(4);
-    }
-
-    await this.redis.hset(keyHash, updateData);
-    console.log(`[${new Date().toISOString()}] [INFO] Updated key ${apiKey.substring(0, 4)}... Success: ${success}, New Score: ${updateData.health_score}`);
   }
 
   /**

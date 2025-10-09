@@ -1,11 +1,15 @@
+
 import Redis from 'ioredis';
 
-// Initialize Redis client using the project's standard connection logic
-const redisUrl = process.env.REDIS_URL || `redis://:${process.env.UPSTASH_REDIS_REST_TOKEN}@${process.env.UPSTASH_REDIS_REST_URL.replace('https://', '')}`;
-const redis = new Redis(redisUrl);
+// Per PRD 2.1, establish a standard connection to Redis
+const redis = new Redis(process.env.REDIS_URL);
 
+/**
+ * Vercel Cron Job for API Key Health Check and Recovery.
+ * As defined in PRD v3.0, Section 4: The Recovery Plane.
+ */
 export default async function handler(req, res) {
-  // 1. Security Validation
+  // Security Validation: Ensure the request comes from the Vercel Cron scheduler
   const authHeader = req.headers.authorization;
   if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
     return res.status(401).json({ error: 'Unauthorized' });
@@ -17,51 +21,68 @@ export default async function handler(req, res) {
 
   let checkedKeys = 0;
   let recoveredKeys = 0;
+  const recoveryPromises = [];
 
   try {
-    // 2. Get all disabled keys
+    // Per PRD 4.1, scan all keys to find potential recovery candidates.
+    // The pattern 'key:*' fetches all keys for inspection.
     const stream = redis.scanStream({
-      match: 'key:*:disabled',
+      match: 'key:*',
       count: 100,
     });
 
-    const recoveryPromises = [];
-
     for await (const keys of stream) {
       for (const key of keys) {
-        checkedKeys++;
-
         const processKey = async (currentKey) => {
-          // 3. Get key details
           const keyData = await redis.hgetall(currentKey);
 
-          // 4. Filter keys for recovery
-          if (keyData.reason === 'server_error' && keyData.lastFailure) {
-            const lastFailureTime = new Date(keyData.lastFailure).getTime();
-            const oneHourAgo = Date.now() - 3600 * 1000; // 1 hour in milliseconds
+          // PRD 4.1 Requirement: Only check keys that are 'disabled' but not for 'invalid_auth'.
+          if (keyData.status === 'disabled' && keyData.reason !== 'invalid_auth') {
+            checkedKeys++;
 
-            if (lastFailureTime < oneHourAgo) {
-            const apiKey = currentKey.split(':')[1];
-            const newKey = `key:${apiKey}:available`;
+            try {
+              // PRD 4.2 Requirement: Perform a lightweight health check.
+              const apiKey = keyData.apiKey;
+              const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key=${apiKey}`;
 
-            // 5. Recover key using a pipeline for atomic operations
-            const pipeline = redis.pipeline();
-            pipeline.hset(currentKey, 'status', 'available');
-            pipeline.hset(currentKey, 'reason', '');
-            pipeline.hset(currentKey, 'lastFailure', '');
-            pipeline.rename(currentKey, newKey);
+              const response = await fetch(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                // Per PRD, use a minimal, cost-effective payload.
+                body: JSON.stringify({
+                  contents: [{ parts: [{ text: "x" }] }]
+                }),
+              });
 
-            await pipeline.exec();
-            recoveredKeys++;
+              // PRD 4.3 Requirement: Define recovery logic based on the check result.
+              if (response.ok) { // HTTP 200-299 indicates success
+                // On success, atomically update the key's status and metrics.
+                const pipeline = redis.multi();
+                pipeline.hset(currentKey, 'status', 'available');
+                pipeline.hset(currentKey, 'health_score', '0.8'); // Reset to a high initial score
+                pipeline.hset(currentKey, 'reason', 'health_check_passed');
+                pipeline.hdel(currentKey, 'lastFailure'); // Clear the last failure timestamp
+
+                await pipeline.exec();
+                recoveredKeys++;
+              } else {
+                // On failure, update the lastFailure timestamp to be re-checked later.
+                await redis.hset(currentKey, 'lastFailure', new Date().toISOString());
+              }
+            } catch (error) {
+              // Network or other errors during fetch
+              console.error(`Health check failed for key ${currentKey}:`, error);
+              await redis.hset(currentKey, 'lastFailure', new Date().toISOString());
+            }
           }
         };
         recoveryPromises.push(processKey(key));
       }
     }
 
+    // Wait for all health checks to complete.
     await Promise.all(recoveryPromises);
 
-    // 6. Respond with the result
     return res.status(200).json({
       message: 'Health check completed successfully.',
       checkedKeys,

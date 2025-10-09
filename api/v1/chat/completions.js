@@ -52,10 +52,14 @@ const handler = async (req) => {
             const model = 'gemini-pro';
             const targetUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
 
+            // Injected 10-second delay for UAT timeout testing
+            await new Promise(resolve => setTimeout(resolve, 10000));
+
             const response = await fetch(`${targetUrl}?key=${apiKey}`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(body),
+                signal: AbortSignal.timeout(8000), // 8-second timeout
             });
 
             if (response.ok) {
@@ -106,6 +110,12 @@ const handler = async (req) => {
         } catch (error) {
             console.error(`[${new Date().toISOString()}] [CRITICAL] Error in handler loop attempt ${attempt + 1}:`, error);
             lastError = error;
+
+            if (error.name === 'TimeoutError' || error.name === 'DOMException') {
+                console.warn(`[${new Date().toISOString()}] [WARN] Request timed out for key ${apiKey.substring(0, 4)}... Penalizing with 504.`);
+                await keyManager.updateKey(apiKey, false, 504);
+                continue; // Move to the next key
+            }
 
             if (apiKey) {
                 // On any unexpected error, penalize the key but do not disable it immediately,

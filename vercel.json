@@ -1,7 +1,8 @@
 {
   "functions": {
     "api/v1/chat/completions.js": {
-      "maxDuration": 60
+      "maxDuration": 60,
+      "includeFiles": "../../../scripts/redis/update_key.lua"
     }
   },
   "installCommand": "npm install",

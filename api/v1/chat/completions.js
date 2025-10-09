@@ -49,83 +49,98 @@ const handler = async (req) => {
 
             await keyManager.lockKey(apiKey);
 
-            const model = 'gemini-pro';
-            const targetUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
+            // This is the core logic loop.
+            // A `finally` block outside this `try...catch` ensures the key is always released.
+            try {
+                const model = 'gemini-pro';
+                const targetUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
 
-
-            const response = await fetch(`${targetUrl}?key=${apiKey}`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(body),
-                signal: AbortSignal.timeout(8000), // 8-second timeout
-            });
-
-            if (response.ok) {
-                // Success
-                const quotaRemaining = response.headers.get('x-ratelimit-remaining');
-                const quotaReset = response.headers.get('x-ratelimit-reset');
-                const quotaInfo = {
-                    remaining: quotaRemaining ? parseInt(quotaRemaining, 10) : undefined,
-                    resetTime: quotaReset,
-                };
-                await keyManager.updateKey(apiKey, true, response.status, quotaInfo);
-                await keyManager.releaseKey(apiKey);
-                return new Response(response.body, {
-                    status: response.status,
+                const response = await fetch(`${targetUrl}?key=${apiKey}`, {
+                    method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(body),
+                    signal: AbortSignal.timeout(8000), // 8-second timeout
                 });
-            }
 
-            // Handle non-5xx failures
-            const statusCode = response.status;
-            const responseBody = await response.text(); // Consume the response body to prevent hanging
+                if (response.ok) {
+                    // Success
+                    const quotaRemaining = response.headers.get('x-ratelimit-remaining');
+                    const quotaReset = response.headers.get('x-ratelimit-reset');
+                    const quotaInfo = {
+                        remaining: quotaRemaining ? parseInt(quotaRemaining, 10) : undefined,
+                        resetTime: quotaReset,
+                    };
+                    await keyManager.updateKey(apiKey, true, response.status, quotaInfo);
+                    // On success, we release the key and return immediately.
+                    await keyManager.releaseKey(apiKey);
+                    return new Response(response.body, {
+                        status: response.status,
+                        headers: { 'Content-Type': 'application/json' },
+                    });
+                }
 
-            // Key-specific failures that should trigger a retry with the next key
-            if ([401, 403, 429].includes(statusCode)) {
-                const reason = statusCode === 429 ? 'quota exceeded' : 'invalid auth';
-                console.warn(`[${new Date().toISOString()}] [WARN] Key failure (${reason}) for ${apiKey.substring(0, 4)}... (Status ${statusCode}). Disabling and retrying.`);
+                // Handle non-5xx failures
+                const statusCode = response.status;
+                const responseBody = await response.text(); // Consume the response body to prevent hanging
+
+                // Key-specific failures that should trigger a retry with the next key
+                if ([401, 403, 429].includes(statusCode)) {
+                    const reason = statusCode === 429 ? 'quota exceeded' : 'invalid auth';
+                    console.warn(`[${new Date().toISOString()}] [WARN] Key failure (${reason}) for ${apiKey.substring(0, 4)}... (Status ${statusCode}). Disabling and retrying.`);
+                    await keyManager.updateKey(apiKey, false, statusCode);
+                    continue; // Immediately try the next key
+                }
+
+                // Other client-side errors that are not key-specific and should not be retried
+                if (statusCode < 500) {
+                    console.error(`[${new Date().toISOString()}] [ERROR] Non-retriable upstream error for key ${apiKey.substring(0, 4)}...: Status ${statusCode}`);
+                    await keyManager.updateKey(apiKey, false, statusCode);
+                    // Do not return here, let the key be released and then exit the loop.
+                    lastError = new Error(`Upstream error: ${statusCode}. Body: ${responseBody}`);
+                    break; // Exit loop, key will be released.
+                }
+
+                // It's a 5xx error, so we retry
+                console.warn(`[${new Date().toISOString()}] [WARN] Retriable server error for key ${apiKey.substring(0, 4)}...: Status ${statusCode}. Attempt ${attempt + 1}/${maxRetries}.`);
                 await keyManager.updateKey(apiKey, false, statusCode);
-                continue; // Immediately try the next key
-            }
 
-            // Other client-side errors that are not key-specific and should not be retried
-            if (statusCode < 500) {
-                console.error(`[${new Date().toISOString()}] [ERROR] Non-retriable upstream error for key ${apiKey.substring(0, 4)}...: Status ${statusCode}`);
-                // We still update the key to penalize it slightly, in case it was a factor.
-                await keyManager.updateKey(apiKey, false, statusCode);
-                return new Response(`Upstream error: ${statusCode}. Body: ${responseBody}`, { status: 502 });
-            }
+                // Exponential backoff with jitter
+                const backoffTime = Math.pow(2, attempt) * 100 + Math.random() * 100;
+                await delay(backoffTime);
 
-            // It's a 5xx error, so we retry
-            console.warn(`[${new Date().toISOString()}] [WARN] Retriable server error for key ${apiKey.substring(0, 4)}...: Status ${statusCode}. Attempt ${attempt + 1}/${maxRetries}.`);
-            await keyManager.updateKey(apiKey, false, statusCode);
-            // await keyManager.releaseKey(apiKey); // DO NOT release, let the key be disabled.
+            } catch (error) {
+                console.error(`[${new Date().toISOString()}] [CRITICAL] Error in handler loop attempt ${attempt + 1}:`, error);
+                lastError = error;
 
-            // Exponential backoff with jitter
-            const backoffTime = Math.pow(2, attempt) * 100 + Math.random() * 100;
-            await delay(backoffTime);
+                if (error.name === 'TimeoutError' || error.name === 'DOMException') {
+                    console.warn(`[${new Date().toISOString()}] [WARN] Request timed out for key ${apiKey.substring(0, 4)}... Penalizing with 504.`);
+                    await keyManager.updateKey(apiKey, false, 504);
+                    continue; // Move to the next key
+                }
 
-        } catch (error) {
-            console.error(`[${new Date().toISOString()}] [CRITICAL] Error in handler loop attempt ${attempt + 1}:`, error);
-            lastError = error;
+                if (error instanceof NoAvailableKeysError) {
+                    // This is a special case where no key was available to begin with.
+                    return new Response('Service Unavailable: All keys are currently busy or disabled.', { status: 503 });
+                }
 
-            if (error.name === 'TimeoutError' || error.name === 'DOMException') {
-                console.warn(`[${new Date().toISOString()}] [WARN] Request timed out for key ${apiKey.substring(0, 4)}... Penalizing with 504.`);
-                await keyManager.updateKey(apiKey, false, 504);
-                continue; // Move to the next key
-            }
-
-            if (apiKey) {
-                // On any unexpected error, penalize the key but do not disable it immediately,
-                // as the issue might be with our router or the request itself.
+                // On any other unexpected error, penalize the key.
                 console.warn(`[${new Date().toISOString()}] [WARN] Unexpected error with key ${apiKey.substring(0, 4)}... Penalizing.`, error.message);
                 await keyManager.updateKey(apiKey, false, 499); // Use 499 as a client-side error code
             }
-
+        } catch (error) {
+            // This outer catch handles errors from getBestKey or lockKey
+            console.error(`[${new Date().toISOString()}] [CRITICAL] Failed to acquire or lock a key.`, error);
+            lastError = error;
             if (error instanceof NoAvailableKeysError) {
                 return new Response('Service Unavailable: All keys are currently busy or disabled.', { status: 503 });
             }
-            // For other errors, we continue the loop to try and get another key
+            // If we can't even get a key, wait a bit before the next top-level retry
+            await delay(100);
+        } finally {
+            if (apiKey) {
+                // ESSENTIAL: Ensure the key is ALWAYS released if it was locked.
+                await keyManager.releaseKey(apiKey);
+            }
         }
     }
 

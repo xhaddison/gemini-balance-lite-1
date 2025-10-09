@@ -52,8 +52,6 @@ const handler = async (req) => {
             const model = 'gemini-pro';
             const targetUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
 
-            // Injected 10-second delay for UAT timeout testing
-            await new Promise(resolve => setTimeout(resolve, 10000));
 
             const response = await fetch(`${targetUrl}?key=${apiKey}`, {
                 method: 'POST',

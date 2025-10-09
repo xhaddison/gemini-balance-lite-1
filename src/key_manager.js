@@ -18,12 +18,15 @@ class KeyManager {
   }
 
   async initialize() {
-    if (!process.env.UPSTASH_REDIS_REST_URL || !process.env.UPSTASH_REDIS_REST_TOKEN) {
+    const url = process.env.UPSTASH_REDIS_REST_URL;
+    const token = process.env.UPSTASH_REDIS_REST_TOKEN;
+
+    if (!url || !token) {
       throw new Error('UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN environment variables must be set.');
     }
     this.redis = new Redis({
-      url: process.env.UPSTASH_REDIS_REST_URL.trim(),
-      token: process.env.UPSTASH_REDIS_REST_TOKEN.trim(),
+      url: url.trim(),
+      token: token.trim(),
     });
     console.log(`[${new Date().toISOString()}] [INFO] KeyManager connected to Redis. Loading Lua script...`);
 
